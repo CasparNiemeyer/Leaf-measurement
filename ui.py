@@ -21,10 +21,16 @@ def root():
 
 def main():
     global matte
+    dark = ui.dark_mode()
     with ui.row().classes('gap-16'):
         with ui.column().classes('w-100 items-stretch'):
-            langselect = ui.select(langlist,on_change=load_language,value=sellang)
+            ui.label("insert camera feed here")
         with ui.column().classes('w-100 items-stretch'):
+            with ui.card().props('flat bordered'):
+                with ui.row():
+                    ui.select(langlist,label=language['select_language'],on_change=load_language,value=sellang)
+                    ui.switch(language['dark_mode_switch']).bind_value(dark)
+                
             with ui.card().props('flat bordered'):
                 ui.label(language['label_settings'])
 
