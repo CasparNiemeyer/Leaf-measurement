@@ -40,11 +40,11 @@ def main():
                         ui.upload(label=language['image_upload'],max_files=1,on_rejected=ui.notify(language['warn_file_upload_fail'])).classes("w-70").props('flat bordered').tooltip(language['image_upload_tooltip'])
                         physwidth = ui.number(language['physwidth_input']).tooltip(language['physwidth_input_tooltip'])
                         physheight = ui.number(language['physheight_input']).tooltip(language['physheight_input_tooltip'])
-                        digwidth = ui.number(language['digwidth_input']).tooltip(language['digwidth_input_tooltip'])
+                        digwidth = ui.number(language['digwidth_input'],value=700).tooltip(language['digwidth_input_tooltip'])
 
                 with ui.card().props('flat bordered'):
                     with ui.expansion(language['label_filter_settings']).classes("w-80"):
-                        kernelsize = ui.number(label=language['kernelsize_input']).tooltip(language['kernelsize_input_tooltip'])
+                        kernelsize = ui.number(label=language['kernelsize_input'],value=6).tooltip(language['kernelsize_input_tooltip'])
                         lower = ui.color_input(label=language['lower_input']).tooltip(language['lower_input_tooltip'])
                         upper = ui.color_input(label=language['upper_input']).tooltip(language['upper_input_tooltip'])
 
@@ -55,6 +55,7 @@ def main():
                         contours = ui.checkbox(language['contours_checkbox']).tooltip(language['contours_checkbox_tooltip'])
                         convex = ui.checkbox(language['convex_checkbox']).tooltip(language['convex_checkbox_tooltip'])
 
+
 def load_language(event):
     global language, sellang
     sellang= event.value
@@ -62,8 +63,8 @@ def load_language(event):
     ui.run_javascript('location.reload();')
     
 
-def handle_upload(e: events.UploadEventArguments):
-    e.file.save('tmp/images/test.jpeg')
+def handle_upload(event):
+    print(event.file)
 
 def run():
     print(matte.value)
