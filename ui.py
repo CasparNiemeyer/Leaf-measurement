@@ -37,7 +37,7 @@ def main():
                 with ui.card().props('flat bordered'):
                     with ui.expansion(language['label_basic_settings']).classes("w-80"):
                         mode = ui.checkbox(language['mode_checkbox']).tooltip(language['mode_checkbox_tooltip'])
-                        ui.upload(label=language['image_upload'],max_files=1,on_rejected=ui.notify(language['warn_file_upload_fail'])).classes("w-3/4").tooltip(language['image_upload_tooltip'])
+                        ui.upload(label=language['image_upload'],max_files=1,on_rejected=ui.notify(language['warn_file_upload_fail'])).classes("w-70").props('flat bordered').tooltip(language['image_upload_tooltip'])
                         physwidth = ui.number(language['physwidth_input']).tooltip(language['physwidth_input_tooltip'])
                         physheight = ui.number(language['physheight_input']).tooltip(language['physheight_input_tooltip'])
                         digwidth = ui.number(language['digwidth_input']).tooltip(language['digwidth_input_tooltip'])
