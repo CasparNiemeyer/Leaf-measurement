@@ -1,0 +1,35 @@
+{
+    "label_settings":"Settings",
+    "label_basic_settings":"Basic settings",
+    "mode_checkbox":"Mode camera/image",
+    "mode_checkbox_tooltip":"Switch mode between using the webcam or a file as input",
+    "image_upload":"Image",
+    "image_upload_tooltip":"Image from harddrive",
+    "physheight_input":"Physical height",
+    "physheight_input_tooltip":"Physical height between the centers of your markers",
+    "physwidth_input":"Physical width",
+    "physwidth_input_tooltip":"Physical width between the centers of your markers",
+    "digwidth_input":"Digitale Auflösung",
+    "digwidth_input_tooltip":"Digitale Auflösung des Abschnittes zwischen den Markern",
+    "label_filter_settings":"Filtereinstellungen",
+    "kernelsize_input":"Kernelgröße",
+    "kernelsize_input_tooltip":"Die Kernelgröße bestimmt die größe einer Matrix, welche verwendet wird um noise herauszufiltern.",
+    "lower_input":"Untere Farbgrenze",
+    "lower_input_tooltip":"Grenze welche beim Filtern bevor der Kantenerkennung verwendet wird",
+    "upper_input":"Obere Farbgrenze",
+    "upper_input_tooltip":"Grenze welche beim Filtern bevor der Kantenerkennung verwendet wird",
+    "label_debug_settings":"Debug Einstellungen",
+    "marker_checkbox":"Marker anzeigen",
+    "marker_checkbox_tooltip":"Erkannte Marker anzeigen",
+    "bound_checkbox":"Fläche markieren",
+    "bound_checkbox_tooltip":"Fläche zwischen Marker anzeigen",
+    "contours_checkbox":"Umrandung",
+    "contours_checkbox_tooltip":"Automatisch erkannte Kanten des Blattes anzeigen",
+    "convex_checkbox":"Convexe Hülle",
+    "convex_checkbox_tooltip":"Convexe Hülle verwenden, nützlich um automatisch Schäden am Blattrand auszufüllen",
+    
+    
+    
+    
+    "warn_file_upload_fail":"Fehler beim Hochladen der Datei"
+}

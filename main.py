@@ -160,7 +160,6 @@ while True:
 
                         area += cv.contourArea(cnt)
                         
-                    print(area*pixelarea)
                     cv.drawContours(result,contours,-1,(0,0,255),3)
                 except:
                     print("error")
