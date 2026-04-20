@@ -3,8 +3,6 @@ import cv2 as cv
 import os
 import json
 
-os.environ['PYTHONTRACEMALLOC']='1'
-
 global language, sellang
 langlist = [i.name for i in os.scandir('lang')]
 
@@ -37,7 +35,7 @@ def main():
                 with ui.card().props('flat bordered'):
                     with ui.expansion(language['label_basic_settings']).classes("w-80"):
                         mode = ui.checkbox(language['mode_checkbox']).tooltip(language['mode_checkbox_tooltip'])
-                        ui.upload(label=language['image_upload'],max_files=1,on_rejected=ui.notify(language['warn_file_upload_fail'])).classes("w-70").props('flat bordered').tooltip(language['image_upload_tooltip'])
+                        ui.upload(label=language['image_upload'],max_files=1,on_upload=handle_upload,on_rejected=ui.notify(language['warn_file_upload_fail'])).classes("w-70").props('flat bordered').tooltip(language['image_upload_tooltip'])
                         physwidth = ui.number(language['physwidth_input']).tooltip(language['physwidth_input_tooltip'])
                         physheight = ui.number(language['physheight_input']).tooltip(language['physheight_input_tooltip'])
                         digwidth = ui.number(language['digwidth_input'],value=700).tooltip(language['digwidth_input_tooltip'])
@@ -63,8 +61,10 @@ def load_language(event):
     ui.run_javascript('location.reload();')
     
 
-def handle_upload(event):
-    print(event.file)
+async def handle_upload(event):
+    content = await event.file.read()
+    with open(f'tmp/images/{event.file.name}','xb') as f:
+        f.write(content)        
 
 def run():
     print(matte.value)
