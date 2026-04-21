@@ -1,5 +1,6 @@
 from nicegui import events,Client, app, core, run, ui
-import cv2 as cv
+import cv2
+import numpy as np
 import os
 import json
 
@@ -63,9 +64,11 @@ def load_language(event):
 
 async def handle_upload(event):
     content = await event.file.read()
-    with open(f'tmp/images/{event.file.name}','xb') as f:
-        f.write(content)        
-
+    nparr = np.frombuffer(content, np.uint8)
+    img_np = cv2.imdecode(nparr, flags=1)
+    cv2.namedWindow("test", cv2.WINDOW_NORMAL)
+    cv2.imshow("test",img_np)
+    cv2.waitKey()
 def run():
     print(matte.value)
 
