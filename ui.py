@@ -43,19 +43,25 @@ def setup() -> None:
         # `convert` is a CPU-intensive function, so we run it in a separate process to avoid blocking the event loop and GIL.
         jpeg = await run.cpu_bound(convert, frame)
         return Response(content=jpeg, media_type='image/jpeg')
-
     
 @ui.page('/')
 def page():
     global matte
     dark = ui.dark_mode()
     with ui.row().classes('gap-16'):
-        with ui.column().classes('w-100 items-stretch'):
-            ui.label("insert camera feed here")
-            # For non-flickering image updates and automatic bandwidth adaptation an interactive image is much better than `ui.image()`.
-            video_image = ui.interactive_image('/video/frame').classes('w-full h-full')
-            # A timer constantly updates the source of the image.
-            ui.timer(interval=0.1, callback=video_image.force_reload)
+        with ui.column().classes('w-200 items-stretch'):
+            with ui.card().props('flat bordered').classes('w-200 items-stretch'):
+                with ui.grid(columns=2).classes('w-full gap-0'):
+                    # For non-flickering image updates and automatic bandwidth adaptation an interactive image is much better than `ui.image()`.
+                    fullScreen_image = ui.interactive_image('/video/frame').classes('center border-none w-auto h-100 col-span-full')
+                    # A timer constantly updates the source of the image.
+                    ui.timer(interval=0.1, callback=fullScreen_image.force_reload)
+
+                    cropped_image = ui.interactive_image('/video/frame').classes('border-none w-full h-full')
+                    ui.timer(interval=0.1, callback=cropped_image.force_reload)
+
+                    masked_image = ui.interactive_image('/video/frame').classes('border-none w-full h-full')
+                    ui.timer(interval=0.1, callback=masked_image.force_reload)
         with ui.column().classes('w-100 items-stretch'):
             with ui.card().props('flat bordered'):
                 with ui.row():
