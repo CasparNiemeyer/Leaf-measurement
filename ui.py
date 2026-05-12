@@ -7,15 +7,20 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import cv2
 import numpy as np
-from fastapi import Response
+from fastapi import Request, Response
 from nicegui import Client, app, core, run, ui
 
 
 BASE_DIR = Path(__file__).resolve().parent
 LANG_DIR = BASE_DIR / 'lang'
+
+# NiceGUI creates a ProcessPoolExecutor on startup for run.cpu_bound.
+# This app only uses run.io_bound, and some Windows setups block multiprocessing pipes.
+run.setup = lambda: None
 
 
 @dataclass
@@ -33,22 +38,32 @@ class MeasurementSettings:
     draw_convex: bool = True
 
 
-app_settings = MeasurementSettings()
-video_capture: cv2.VideoCapture | None = None
-uploaded_image: np.ndarray | None = None
-frozen_frame: np.ndarray | None = None
-freeze_enabled = False
-input_revision = 0
-processed_cache: dict[str, Any] = {}
-processing_lock: asyncio.Lock | None = None
-last_measurement: dict[str, Any] = {
-    'status': 'Noch kein Bild verarbeitet',
-    'area': None,
-    'convex_area': None,
-    'damage_area': None,
-    'damage_percent': None,
-    'markers': 0,
-}
+@dataclass
+class SessionState:
+    settings: MeasurementSettings
+    browser_frame: np.ndarray | None = None
+    uploaded_image: np.ndarray | None = None
+    frozen_frame: np.ndarray | None = None
+    freeze_enabled: bool = False
+    input_revision: int = 0
+    processed_cache: dict[str, Any] | None = None
+    processing_lock: asyncio.Lock | None = None
+    last_measurement: dict[str, Any] | None = None
+    last_seen: float = 0.0
+
+
+def default_measurement() -> dict[str, Any]:
+    return {
+        'status': 'Noch kein Bild verarbeitet',
+        'area': None,
+        'convex_area': None,
+        'damage_area': None,
+        'damage_percent': None,
+        'markers': 0,
+    }
+
+
+sessions: dict[str, SessionState] = {}
 
 langlist = sorted(i.name for i in os.scandir(LANG_DIR) if i.is_file())
 sellang = 'de.json' if 'de.json' in langlist else (langlist[0] if langlist else '')
@@ -104,10 +119,53 @@ def hex_to_hsv(value: str | None) -> tuple[int, int, int] | None:
 def update_hsv_setting(attr: str, value: str | None) -> None:
     hsv = hex_to_hsv(value)
     if hsv is not None:
-        setattr(app_settings, attr, hsv)
+        setattr(default_session().settings, attr, hsv)
 
 
-def snapshot_settings() -> dict[str, Any]:
+def default_session() -> SessionState:
+    state = sessions.get('default')
+    if state is None:
+        state = create_session('default')
+    return state
+
+
+def create_session(session_id: str) -> SessionState:
+    state = SessionState(
+        settings=MeasurementSettings(),
+        processed_cache={},
+        last_measurement=default_measurement(),
+        last_seen=time.monotonic(),
+    )
+    sessions[session_id] = state
+    return state
+
+
+def get_session(session_id: str) -> SessionState:
+    state = sessions.get(session_id)
+    if state is None:
+        state = create_session(session_id)
+    state.last_seen = time.monotonic()
+    return state
+
+
+def cleanup_sessions(max_age_seconds: int = 600) -> None:
+    now = time.monotonic()
+    for session_id, state in list(sessions.items()):
+        if session_id != 'default' and now - state.last_seen > max_age_seconds:
+            del sessions[session_id]
+
+
+def update_hsv_setting_for(state: SessionState, attr: str, value: str | None) -> None:
+    hsv = hex_to_hsv(value)
+    if hsv is not None:
+        setattr(state.settings, attr, hsv)
+        state.processed_cache = {}
+        state.input_revision += 1
+
+
+def snapshot_settings(state: SessionState | None = None) -> dict[str, Any]:
+    state = state or default_session()
+    app_settings = state.settings
     return {
         'mode_camera': bool(app_settings.mode_camera),
         'phys_width': float(app_settings.phys_width or 13.4),
@@ -120,8 +178,8 @@ def snapshot_settings() -> dict[str, Any]:
         'draw_bound': bool(app_settings.draw_bound),
         'draw_contours': bool(app_settings.draw_contours),
         'draw_convex': bool(app_settings.draw_convex),
-        'freeze_enabled': freeze_enabled,
-        'input_revision': input_revision,
+        'freeze_enabled': state.freeze_enabled,
+        'input_revision': state.input_revision,
     }
 
 
@@ -344,45 +402,45 @@ def cache_key(settings: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def get_processing_lock() -> asyncio.Lock:
-    global processing_lock
-    if processing_lock is None:
-        processing_lock = asyncio.Lock()
-    return processing_lock
+def get_processing_lock(state: SessionState) -> asyncio.Lock:
+    if state.processing_lock is None:
+        state.processing_lock = asyncio.Lock()
+    return state.processing_lock
 
 
-async def read_source_frame(use_camera: bool) -> np.ndarray | None:
+async def read_source_frame(state: SessionState, use_camera: bool) -> np.ndarray | None:
     if use_camera:
-        if freeze_enabled and frozen_frame is not None:
-            return frozen_frame.copy()
-        if video_capture is None or not video_capture.isOpened():
+        if state.freeze_enabled and state.frozen_frame is not None:
+            return state.frozen_frame.copy()
+        if state.browser_frame is None:
             return None
-        success, frame = await run.io_bound(video_capture.read)
-        return frame if success and frame is not None else None
+        return state.browser_frame.copy()
 
-    if uploaded_image is None:
+    if state.uploaded_image is None:
         return None
-    return uploaded_image.copy()
+    return state.uploaded_image.copy()
 
 
-async def get_processed_result() -> dict[str, Any] | None:
-    global last_measurement, processed_cache
+async def get_processed_result(session_id: str) -> dict[str, Any] | None:
+    state = get_session(session_id)
+    if state.processed_cache is None:
+        state.processed_cache = {}
 
-    settings = snapshot_settings()
+    settings = snapshot_settings(state)
     key = cache_key(settings)
     now = time.monotonic()
 
-    if processed_cache.get('key') == key and now - processed_cache.get('time', 0) < 0.15:
-        return processed_cache['result']
+    if state.processed_cache.get('key') == key and now - state.processed_cache.get('time', 0) < 0.12:
+        return state.processed_cache['result']
 
-    async with get_processing_lock():
+    async with get_processing_lock(state):
         now = time.monotonic()
-        if processed_cache.get('key') == key and now - processed_cache.get('time', 0) < 0.15:
-            return processed_cache['result']
+        if state.processed_cache.get('key') == key and now - state.processed_cache.get('time', 0) < 0.12:
+            return state.processed_cache['result']
 
-        frame = await read_source_frame(settings['mode_camera'])
+        frame = await read_source_frame(state, settings['mode_camera'])
         if frame is None:
-            last_measurement = {
+            state.last_measurement = {
                 'status': 'Keine Kamera oder kein Bild',
                 'area': None,
                 'convex_area': None,
@@ -393,8 +451,8 @@ async def get_processed_result() -> dict[str, Any] | None:
             return None
 
         result = await run.io_bound(process_frame, frame, settings)
-        last_measurement = result['measurement']
-        processed_cache = {
+        state.last_measurement = result['measurement']
+        state.processed_cache = {
             'key': key,
             'time': time.monotonic(),
             'result': result,
@@ -402,12 +460,20 @@ async def get_processed_result() -> dict[str, Any] | None:
         return result
 
 
-@app.get('/video/{view}')
-async def grab_video_frame(view: str) -> Response:
+@app.get('/video/{session_id}/{view}')
+async def grab_video_frame(session_id: str, view: str) -> Response:
     if view not in {'full', 'cropped', 'mask', 'result'}:
         return placeholder
 
-    processed = await get_processed_result()
+    state = get_session(session_id)
+    if view == 'full':
+        frame = await read_source_frame(state, state.settings.mode_camera)
+        if frame is None:
+            return placeholder
+        jpeg = await run.io_bound(convert, frame)
+        return Response(content=jpeg, media_type='image/jpeg') if jpeg else placeholder
+
+    processed = await get_processed_result(session_id)
     if processed is None:
         return placeholder
 
@@ -421,14 +487,102 @@ async def grab_video_frame(view: str) -> Response:
     return Response(content=jpeg, media_type='image/jpeg')
 
 
+@app.post('/camera/frame/{session_id}')
+async def receive_browser_frame(session_id: str, request: Request) -> Response:
+    state = get_session(session_id)
+
+    content = await request.body()
+    nparr = np.frombuffer(content, np.uint8)
+    frame = cv2.imdecode(nparr, flags=cv2.IMREAD_COLOR)
+    if frame is None:
+        return Response(status_code=400)
+
+    if not state.freeze_enabled:
+        state.browser_frame = frame
+        state.input_revision += 1
+    return Response(status_code=204)
+
+
 def setup() -> None:
-    global video_capture
-    video_capture = cv2.VideoCapture(0)
+    pass
 
 
 @ui.page('/')
 def page() -> None:
     dark = ui.dark_mode()
+    session_id = uuid4().hex
+    state = create_session(session_id)
+    app_settings = state.settings
+    camera_post_url = f'/camera/frame/{session_id}'
+
+    async def handle_session_upload(event: Any) -> None:
+        await handle_upload(state, event)
+
+    camera_script = """
+        <video id="browser-camera-video-__SESSION_ID__" autoplay playsinline muted style="display:none"></video>
+        <canvas id="browser-camera-canvas-__SESSION_ID__" style="display:none"></canvas>
+        <script>
+        (() => {
+            const video = document.getElementById('browser-camera-video-__SESSION_ID__');
+            const canvas = document.getElementById('browser-camera-canvas-__SESSION_ID__');
+            const ctx = canvas.getContext('2d');
+            let sending = false;
+
+            async function startCamera() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            facingMode: 'environment',
+                            width: { ideal: 960 },
+                            height: { ideal: 540 },
+                            frameRate: { ideal: 30, max: 30 },
+                        },
+                        audio: false,
+                    });
+                    video.srcObject = stream;
+                    await video.play();
+                } catch (error) {
+                    console.error('Browser camera could not be started:', error);
+                }
+            }
+
+            async function sendFrame() {
+                if (sending || video.readyState < 2 || video.videoWidth === 0) {
+                    return;
+                }
+                sending = true;
+                const maxWidth = 960;
+                const scale = Math.min(1, maxWidth / video.videoWidth);
+                canvas.width = Math.round(video.videoWidth * scale);
+                canvas.height = Math.round(video.videoHeight * scale);
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob(async blob => {
+                    try {
+                        if (blob) {
+                            await fetch('__CAMERA_POST_URL__', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'image/jpeg' },
+                                body: blob,
+                            });
+                        }
+                    } catch (error) {
+                        console.error('Browser camera frame could not be sent:', error);
+                    } finally {
+                        sending = false;
+                    }
+                }, 'image/jpeg', 0.68);
+            }
+
+            startCamera();
+            window.leafMeasurementCameraTimer = window.setInterval(sendFrame, 66);
+        })();
+        </script>
+    """
+    ui.add_body_html(
+        camera_script
+        .replace('__SESSION_ID__', session_id)
+        .replace('__CAMERA_POST_URL__', camera_post_url)
+    )
 
     with ui.row().classes('gap-4 items-start'):
         with ui.column().classes('w-200 items-stretch'):
@@ -437,23 +591,24 @@ def page() -> None:
                     with ui.row().classes('col-span-full items-center justify-between'):
                         ui.label('Fullframe')
                         freeze_button = ui.button('Freeze')
-                    full_image = ui.interactive_image('/video/full').classes('border-none w-full col-span-full')
+                    full_image = ui.interactive_image(f'/video/{session_id}/full').classes('border-none w-full col-span-full')
 
                     async def handle_freeze_click() -> None:
-                        await toggle_freeze(freeze_button, full_image)
+                        await toggle_freeze(state, freeze_button, full_image)
 
                     freeze_button.on('click', handle_freeze_click)
 
                     ui.label('Cropped')
                     ui.label('Result')
-                    cropped_image = ui.interactive_image('/video/cropped').classes('border-none w-full')
-                    result_image = ui.interactive_image('/video/result').classes('border-none w-full')
+                    cropped_image = ui.interactive_image(f'/video/{session_id}/cropped').classes('border-none w-full')
+                    result_image = ui.interactive_image(f'/video/{session_id}/result').classes('border-none w-full')
 
                     ui.label('Damage Mask').classes('col-span-full')
-                    masked_image = ui.interactive_image('/video/mask').classes('border-none w-full col-span-full')
+                    masked_image = ui.interactive_image(f'/video/{session_id}/mask').classes('border-none w-full col-span-full')
 
-                for image in (full_image, cropped_image, result_image, masked_image):
-                    ui.timer(interval=0.2, callback=image.force_reload)
+                ui.timer(interval=0.08, callback=full_image.force_reload)
+                for image in (cropped_image, result_image, masked_image):
+                    ui.timer(interval=0.3, callback=image.force_reload)
 
         with ui.column().classes('w-100 items-stretch'):
             with ui.card().props('flat bordered'):
@@ -471,6 +626,7 @@ def page() -> None:
                 ui.timer(
                     interval=0.5,
                     callback=lambda: update_measurement_labels(
+                        state,
                         area_label,
                         convex_label,
                         damage_label,
@@ -494,7 +650,7 @@ def page() -> None:
                         ui.upload(
                             label=text('image_upload', 'Bild'),
                             max_files=1,
-                            on_upload=handle_upload,
+                            on_upload=handle_session_upload,
                             on_rejected=lambda _: ui.notify(text('warn_file_upload_fail', 'Fehler beim Hochladen der Datei')),
                         ).classes('w-70').props('flat bordered').tooltip(text('image_upload_tooltip', 'Bild von Festplatte auswaehlen'))
 
@@ -541,13 +697,13 @@ def page() -> None:
                         ui.color_input(
                             label=text('lower_input', 'Untere Farbgrenze'),
                             value=hsv_to_hex(app_settings.lower_hsv),
-                            on_change=lambda event: update_hsv_setting('lower_hsv', event.value),
+                            on_change=lambda event: update_hsv_setting_for(state, 'lower_hsv', event.value),
                         ).tooltip(text('lower_input_tooltip', 'Untere Farbgrenze fuer den Filter'))
 
                         ui.color_input(
                             label=text('upper_input', 'Obere Farbgrenze'),
                             value=hsv_to_hex(app_settings.upper_hsv),
-                            on_change=lambda event: update_hsv_setting('upper_hsv', event.value),
+                            on_change=lambda event: update_hsv_setting_for(state, 'upper_hsv', event.value),
                         ).tooltip(text('upper_input_tooltip', 'Obere Farbgrenze fuer den Filter'))
 
                 with ui.card().props('flat bordered').classes('items-stretch'):
@@ -570,12 +726,14 @@ def page() -> None:
 
 
 def update_measurement_labels(
+    state: SessionState,
     area_label: ui.label,
     convex_label: ui.label,
     damage_label: ui.label,
     damage_percent_label: ui.label,
     status_label: ui.label,
 ) -> None:
+    last_measurement = state.last_measurement or default_measurement()
     area = last_measurement.get('area')
     convex_area = last_measurement.get('convex_area')
     damage_area = last_measurement.get('damage_area')
@@ -589,39 +747,33 @@ def update_measurement_labels(
     status_label.set_text(f"Status: {last_measurement.get('status', '-')}")
 
 
-async def toggle_freeze(button: ui.button, full_image: ui.interactive_image) -> None:
-    global freeze_enabled, frozen_frame, input_revision, processed_cache
-
-    async with get_processing_lock():
-        if freeze_enabled:
-            freeze_enabled = False
-            frozen_frame = None
+async def toggle_freeze(state: SessionState, button: ui.button, full_image: ui.interactive_image) -> None:
+    async with get_processing_lock(state):
+        if state.freeze_enabled:
+            state.freeze_enabled = False
+            state.frozen_frame = None
             button.set_text('Freeze')
-            input_revision += 1
-            processed_cache = {}
+            state.input_revision += 1
+            state.processed_cache = {}
             full_image.force_reload()
             ui.notify('Livebild aktiv')
             return
 
-        if app_settings.mode_camera:
-            if video_capture is None or not video_capture.isOpened():
-                ui.notify('Kamera nicht verfuegbar')
+        if state.settings.mode_camera:
+            if state.browser_frame is None:
+                ui.notify('Noch kein Browser-Kamerabild empfangen')
                 return
-            success, frame = await run.io_bound(video_capture.read)
-            if not success or frame is None:
-                ui.notify('Kein Kamerabild empfangen')
-                return
-            frozen_frame = frame.copy()
-        elif uploaded_image is not None:
-            frozen_frame = uploaded_image.copy()
+            state.frozen_frame = state.browser_frame.copy()
+        elif state.uploaded_image is not None:
+            state.frozen_frame = state.uploaded_image.copy()
         else:
             ui.notify('Kein Bild zum Einfrieren')
             return
 
-        freeze_enabled = True
+        state.freeze_enabled = True
         button.set_text('Live')
-        input_revision += 1
-        processed_cache = {}
+        state.input_revision += 1
+        state.processed_cache = {}
         full_image.force_reload()
         ui.notify('Frame eingefroren')
 
@@ -633,9 +785,7 @@ def load_language(event: Any) -> None:
     ui.run_javascript('location.reload();')
 
 
-async def handle_upload(event: Any) -> None:
-    global uploaded_image, input_revision, processed_cache
-
+async def handle_upload(state: SessionState, event: Any) -> None:
     content = await event.file.read()
     nparr = np.frombuffer(content, np.uint8)
     image = cv2.imdecode(nparr, flags=cv2.IMREAD_COLOR)
@@ -644,10 +794,10 @@ async def handle_upload(event: Any) -> None:
         ui.notify(text('warn_file_upload_fail', 'Fehler beim Hochladen der Datei'))
         return
 
-    uploaded_image = image
-    input_revision += 1
-    processed_cache = {}
-    app_settings.mode_camera = False
+    state.uploaded_image = image
+    state.input_revision += 1
+    state.processed_cache = {}
+    state.settings.mode_camera = False
     ui.notify('Bild geladen')
 
 
@@ -663,13 +813,10 @@ def handle_sigint(signum: int, frame: Any) -> None:
 
 async def cleanup() -> None:
     await disconnect()
-    if video_capture is not None:
-        video_capture.release()
-
 
 app.on_startup(setup)
 app.on_shutdown(cleanup)
 signal.signal(signal.SIGINT, handle_sigint)
 
-if __name__ in {'__main__', '__mp_main__'}:
-    ui.run()
+if __name__ == '__main__':
+    ui.run(host='0.0.0.0', port=8080, show=False, reload=False)
