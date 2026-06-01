@@ -42,8 +42,15 @@ class MeasurementSettings:
 class SessionState:
     settings: MeasurementSettings
     browser_frame: np.ndarray | None = None
+    browser_frame_jpeg: bytes | None = None
     uploaded_image: np.ndarray | None = None
     frozen_frame: np.ndarray | None = None
+    manual_damage_mask: np.ndarray | None = None
+    manual_correct_mask: np.ndarray | None = None
+    manual_damage_enabled: bool = True
+    auto_edge_damage_enabled: bool = True
+    manual_damage_revision: int = 0
+    manual_brush_size: int = 18
     freeze_enabled: bool = False
     input_revision: int = 0
     processed_cache: dict[str, Any] | None = None
@@ -163,6 +170,35 @@ def update_hsv_setting_for(state: SessionState, attr: str, value: str | None) ->
         state.input_revision += 1
 
 
+def update_hsv_range(state: SessionState, index: int, value: Any) -> None:
+    try:
+        if isinstance(value, dict):
+            lower_value = value.get('min')
+            upper_value = value.get('max')
+        else:
+            lower_value, upper_value = value
+        lower_numeric = int(float(lower_value))
+        upper_numeric = int(float(upper_value))
+    except (TypeError, ValueError):
+        return
+
+    max_value = 179 if index == 0 else 255
+    lower_numeric = max(0, min(max_value, lower_numeric))
+    upper_numeric = max(0, min(max_value, upper_numeric))
+    if lower_numeric > upper_numeric:
+        lower_numeric, upper_numeric = upper_numeric, lower_numeric
+
+    lower = list(state.settings.lower_hsv)
+    upper = list(state.settings.upper_hsv)
+    lower[index] = lower_numeric
+    upper[index] = upper_numeric
+
+    state.settings.lower_hsv = tuple(lower)
+    state.settings.upper_hsv = tuple(upper)
+    state.processed_cache = {}
+    state.input_revision += 1
+
+
 def snapshot_settings(state: SessionState | None = None) -> dict[str, Any]:
     state = state or default_session()
     app_settings = state.settings
@@ -180,6 +216,9 @@ def snapshot_settings(state: SessionState | None = None) -> dict[str, Any]:
         'draw_convex': bool(app_settings.draw_convex),
         'freeze_enabled': state.freeze_enabled,
         'input_revision': state.input_revision,
+        'manual_damage_enabled': state.manual_damage_enabled,
+        'auto_edge_damage_enabled': state.auto_edge_damage_enabled,
+        'manual_damage_revision': state.manual_damage_revision,
     }
 
 
@@ -235,7 +274,12 @@ def detect_aruco(frame: np.ndarray) -> tuple[list[np.ndarray], np.ndarray | None
     return corners, ids, None
 
 
-def process_frame(frame: np.ndarray, settings: dict[str, Any]) -> dict[str, Any]:
+def process_frame(
+    frame: np.ndarray,
+    settings: dict[str, Any],
+    manual_damage_mask: np.ndarray | None = None,
+    manual_correct_mask: np.ndarray | None = None,
+) -> dict[str, Any]:
     dig_width = max(100, min(2500, int(settings['dig_width'])))
     kernel_size = max(1, min(100, int(settings['kernel_size'])))
     phys_width = max(0.001, float(settings['phys_width']))
@@ -339,15 +383,48 @@ def process_frame(frame: np.ndarray, settings: dict[str, Any]) -> dict[str, Any]
     contour = max(contours, key=cv2.contourArea)
     hull = cv2.convexHull(contour)
 
+    contour_mask = np.zeros_like(opened_mask)
+    cv2.drawContours(contour_mask, [contour], -1, 255, thickness=-1)
+
     hull_mask = np.zeros_like(opened_mask)
     cv2.drawContours(hull_mask, [hull], -1, 255, thickness=-1)
     green_mask = cv2.bitwise_and(opened_mask, hull_mask)
-    damage_mask = cv2.bitwise_and(hull_mask, cv2.bitwise_not(green_mask))
+
+    inner_damage_mask = cv2.bitwise_and(contour_mask, cv2.bitwise_not(green_mask))
+    edge_damage_mask = cv2.bitwise_and(hull_mask, cv2.bitwise_not(contour_mask))
 
     damage_kernel = np.ones((max(1, kernel_size), max(1, kernel_size)), np.uint8)
-    damage_mask = cv2.morphologyEx(damage_mask, cv2.MORPH_OPEN, damage_kernel)
+    inner_damage_mask = cv2.morphologyEx(inner_damage_mask, cv2.MORPH_OPEN, damage_kernel)
+    edge_damage_mask = cv2.morphologyEx(edge_damage_mask, cv2.MORPH_OPEN, damage_kernel)
 
-    green_pixels = cv2.countNonZero(green_mask)
+    damage_mask = inner_damage_mask.copy()
+    if settings.get('auto_edge_damage_enabled', True):
+        damage_mask = cv2.bitwise_or(damage_mask, edge_damage_mask)
+
+    manual_mask_for_display = np.zeros_like(damage_mask)
+    correct_mask_for_display = np.zeros_like(damage_mask)
+    if settings.get('manual_damage_enabled') and manual_damage_mask is not None:
+        if manual_damage_mask.shape != damage_mask.shape:
+            manual_damage_mask = cv2.resize(
+                manual_damage_mask,
+                (damage_mask.shape[1], damage_mask.shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            )
+        manual_mask_for_display = manual_damage_mask.copy()
+        damage_mask = cv2.bitwise_or(damage_mask, manual_mask_for_display)
+
+    if settings.get('manual_damage_enabled') and manual_correct_mask is not None:
+        if manual_correct_mask.shape != damage_mask.shape:
+            manual_correct_mask = cv2.resize(
+                manual_correct_mask,
+                (damage_mask.shape[1], damage_mask.shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            )
+        correct_mask_for_display = manual_correct_mask.copy()
+        damage_mask = cv2.bitwise_and(damage_mask, cv2.bitwise_not(correct_mask_for_display))
+
+    measured_green_mask = cv2.bitwise_or(green_mask, correct_mask_for_display)
+    green_pixels = cv2.countNonZero(measured_green_mask)
     hull_pixels = cv2.countNonZero(hull_mask)
     damage_pixels = cv2.countNonZero(damage_mask)
 
@@ -358,6 +435,8 @@ def process_frame(frame: np.ndarray, settings: dict[str, Any]) -> dict[str, Any]
 
     mask_preview = cv2.cvtColor(damage_mask, cv2.COLOR_GRAY2BGR)
     result[damage_mask > 0] = (0, 0, 255)
+    result[manual_mask_for_display > 0] = (0, 128, 255)
+    result[correct_mask_for_display > 0] = (0, 255, 0)
 
     if settings['draw_convex']:
         cv2.drawContours(result, [hull], -1, (255, 0, 0), 5)
@@ -398,7 +477,9 @@ def cache_key(settings: dict[str, Any]) -> tuple[Any, ...]:
         settings['draw_contours'],
         settings['draw_convex'],
         settings['freeze_enabled'],
-        settings['input_revision'],
+        settings['manual_damage_enabled'],
+        settings['auto_edge_damage_enabled'],
+        settings['manual_damage_revision'],
     )
 
 
@@ -429,13 +510,14 @@ async def get_processed_result(session_id: str) -> dict[str, Any] | None:
     settings = snapshot_settings(state)
     key = cache_key(settings)
     now = time.monotonic()
+    min_cache_age = 0.8 if settings['mode_camera'] and not settings['freeze_enabled'] else 0.12
 
-    if state.processed_cache.get('key') == key and now - state.processed_cache.get('time', 0) < 0.12:
+    if state.processed_cache.get('key') == key and now - state.processed_cache.get('time', 0) < min_cache_age:
         return state.processed_cache['result']
 
     async with get_processing_lock(state):
         now = time.monotonic()
-        if state.processed_cache.get('key') == key and now - state.processed_cache.get('time', 0) < 0.12:
+        if state.processed_cache.get('key') == key and now - state.processed_cache.get('time', 0) < min_cache_age:
             return state.processed_cache['result']
 
         frame = await read_source_frame(state, settings['mode_camera'])
@@ -450,7 +532,9 @@ async def get_processed_result(session_id: str) -> dict[str, Any] | None:
             }
             return None
 
-        result = await run.io_bound(process_frame, frame, settings)
+        manual_damage_mask = state.manual_damage_mask.copy() if state.manual_damage_mask is not None else None
+        manual_correct_mask = state.manual_correct_mask.copy() if state.manual_correct_mask is not None else None
+        result = await run.io_bound(process_frame, frame, settings, manual_damage_mask, manual_correct_mask)
         state.last_measurement = result['measurement']
         state.processed_cache = {
             'key': key,
@@ -467,6 +551,12 @@ async def grab_video_frame(session_id: str, view: str) -> Response:
 
     state = get_session(session_id)
     if view == 'full':
+        if (
+            state.settings.mode_camera
+            and not state.freeze_enabled
+            and state.browser_frame_jpeg is not None
+        ):
+            return Response(content=state.browser_frame_jpeg, media_type='image/jpeg')
         frame = await read_source_frame(state, state.settings.mode_camera)
         if frame is None:
             return placeholder
@@ -499,7 +589,89 @@ async def receive_browser_frame(session_id: str, request: Request) -> Response:
 
     if not state.freeze_enabled:
         state.browser_frame = frame
-        state.input_revision += 1
+        state.browser_frame_jpeg = bytes(content)
+    return Response(status_code=204)
+
+
+def ensure_manual_damage_mask(state: SessionState, width: int, height: int) -> np.ndarray:
+    if state.manual_damage_mask is None or state.manual_damage_mask.shape != (height, width):
+        state.manual_damage_mask = np.zeros((height, width), dtype=np.uint8)
+    return state.manual_damage_mask
+
+
+def ensure_manual_correct_mask(state: SessionState, width: int, height: int) -> np.ndarray:
+    if state.manual_correct_mask is None or state.manual_correct_mask.shape != (height, width):
+        state.manual_correct_mask = np.zeros((height, width), dtype=np.uint8)
+    return state.manual_correct_mask
+
+
+@app.post('/manual-damage/{session_id}')
+async def receive_manual_damage(session_id: str, request: Request) -> Response:
+    state = get_session(session_id)
+    try:
+        payload = await request.json()
+    except Exception:
+        return Response(status_code=400)
+
+    tool = payload.get('tool')
+    points = payload.get('points') or []
+    if tool not in {'brush', 'damage', 'correct', 'eraser'} or len(points) == 0:
+        return Response(status_code=400)
+
+    dig_width = max(100, min(2500, int(state.settings.dig_width or 700)))
+    canvas_width = max(1, float(payload.get('canvas_width') or dig_width))
+    canvas_height = max(1, float(payload.get('canvas_height') or dig_width))
+    brush_size = max(1, min(250, int(payload.get('brush_size') or state.manual_brush_size)))
+    scaled_brush = max(1, int(round(brush_size * dig_width / max(canvas_width, canvas_height))))
+
+    damage_mask = ensure_manual_damage_mask(state, dig_width, dig_width)
+    correct_mask = ensure_manual_correct_mask(state, dig_width, dig_width)
+
+    scaled_points = []
+    for point in points:
+        try:
+            x = int(round(float(point['x']) * dig_width / canvas_width))
+            y = int(round(float(point['y']) * dig_width / canvas_height))
+        except (KeyError, TypeError, ValueError):
+            continue
+        x = max(0, min(dig_width - 1, x))
+        y = max(0, min(dig_width - 1, y))
+        scaled_points.append((x, y))
+
+    if not scaled_points:
+        return Response(status_code=400)
+
+    def draw(mask: np.ndarray, value: int) -> None:
+        if len(scaled_points) == 1:
+            cv2.circle(mask, scaled_points[0], max(1, scaled_brush // 2), value, thickness=-1)
+        else:
+            for start, end in zip(scaled_points, scaled_points[1:]):
+                cv2.line(mask, start, end, value, scaled_brush, lineType=cv2.LINE_8)
+
+    if tool in {'brush', 'damage'}:
+        draw(damage_mask, 255)
+        draw(correct_mask, 0)
+    elif tool == 'correct':
+        draw(correct_mask, 255)
+        draw(damage_mask, 0)
+    else:
+        draw(damage_mask, 0)
+        draw(correct_mask, 0)
+
+    state.manual_damage_revision += 1
+    state.processed_cache = {}
+    return Response(status_code=204)
+
+
+@app.post('/manual-damage/{session_id}/clear')
+async def clear_manual_damage(session_id: str) -> Response:
+    state = get_session(session_id)
+    if state.manual_damage_mask is not None:
+        state.manual_damage_mask.fill(0)
+    if state.manual_correct_mask is not None:
+        state.manual_correct_mask.fill(0)
+    state.manual_damage_revision += 1
+    state.processed_cache = {}
     return Response(status_code=204)
 
 
@@ -514,67 +686,431 @@ def page() -> None:
     state = create_session(session_id)
     app_settings = state.settings
     camera_post_url = f'/camera/frame/{session_id}'
+    manual_damage_url = f'/manual-damage/{session_id}'
+    manual_clear_url = f'/manual-damage/{session_id}/clear'
 
     async def handle_session_upload(event: Any) -> None:
         await handle_upload(state, event)
 
+    ui.add_head_html("""
+        <style>
+            .leaf-shell {
+                width: min(100%, 1540px);
+                margin: 0 auto;
+                align-items: flex-start;
+            }
+            .leaf-preview-panel {
+                flex: 1 1 1080px;
+                min-width: 0;
+            }
+            .leaf-settings-panel {
+                flex: 0 0 380px;
+                max-width: 380px;
+            }
+            .leaf-preview-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(420px, 1fr));
+                gap: 12px;
+                width: 100%;
+            }
+            .leaf-span-full {
+                grid-column: 1 / -1;
+            }
+            .leaf-preview-title {
+                font-weight: 600;
+                margin-top: 4px;
+            }
+            @media (max-width: 980px) {
+                .leaf-shell {
+                    display: flex;
+                    flex-direction: column;
+                }
+                .leaf-preview-panel,
+                .leaf-settings-panel {
+                    width: 100%;
+                    max-width: none;
+                    flex-basis: auto;
+                }
+                .leaf-preview-grid {
+                    grid-template-columns: minmax(0, 1fr);
+                }
+            }
+        </style>
+    """)
+
     camera_script = """
-        <video id="browser-camera-video-__SESSION_ID__" autoplay playsinline muted style="display:none"></video>
+        <video id="browser-camera-video-__SESSION_ID__" autoplay playsinline muted style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px;top:-9999px"></video>
         <canvas id="browser-camera-canvas-__SESSION_ID__" style="display:none"></canvas>
         <script>
         (() => {
             const video = document.getElementById('browser-camera-video-__SESSION_ID__');
             const canvas = document.getElementById('browser-camera-canvas-__SESSION_ID__');
             const ctx = canvas.getContext('2d');
+            const sessionId = '__SESSION_ID__';
+            let stream = null;
+            let started = false;
+            let startingPromise = null;
             let sending = false;
+            let sendingStartedAt = 0;
+            let lastFrameSentAt = 0;
+            let lastWatchdogRestartAt = 0;
+            let consecutiveFrameErrors = 0;
+            const frameIntervalMs = 250;
+            const sendTimeoutMs = 2500;
+
+            window.leafMeasurementCamera = window.leafMeasurementCamera || {};
+            const api = window.leafMeasurementCamera[sessionId] = {
+                start: startCamera,
+                stop: stopCamera,
+                refreshDevices,
+            };
+
+            function setCameraStatus(status, error = '') {
+                const label = document.getElementById(`camera-status-${sessionId}`);
+                if (label) {
+                    label.textContent = error ? `Kamera: ${status} (${error})` : `Kamera: ${status}`;
+                }
+            }
+
+            function setCameraDebug(lines) {
+                const debug = document.getElementById(`camera-debug-${sessionId}`);
+                if (debug) {
+                    debug.textContent = Array.isArray(lines) ? lines.join('\\n') : String(lines || '');
+                }
+            }
+
+            function describeError(error) {
+                return [error?.name, error?.message].filter(Boolean).join(': ') || 'unbekannt';
+            }
+
+            function stopCurrentStream() {
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
+                video.pause();
+                video.srcObject = null;
+                sending = false;
+            }
+
+            function stopCamera() {
+                started = false;
+                stopCurrentStream();
+                setCameraStatus('gestoppt');
+            }
+
+            async function unlockDeviceLabelsIfNeeded(videoDevices) {
+                if (started || !navigator.mediaDevices?.getUserMedia || !videoDevices.length) {
+                    return false;
+                }
+                if (videoDevices.some(device => device.label)) {
+                    return false;
+                }
+                try {
+                    setCameraStatus('bereit', 'hole Kameranamen');
+                    const probeStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    probeStream.getTracks().forEach(track => track.stop());
+                    return true;
+                } catch (error) {
+                    setCameraDebug([
+                        `URL: ${window.location.href}`,
+                        `Secure Context: ${window.isSecureContext}`,
+                        `getUserMedia: ${Boolean(navigator.mediaDevices?.getUserMedia)}`,
+                        `Kameranamen noch gesperrt: ${describeError(error)}`,
+                    ]);
+                    return false;
+                }
+            }
+
+            async function refreshDevices(unlockLabels = true) {
+                const select = document.getElementById(`camera-device-${sessionId}`);
+                const lines = [
+                    `URL: ${window.location.href}`,
+                    `Secure Context: ${window.isSecureContext}`,
+                    `getUserMedia: ${Boolean(navigator.mediaDevices?.getUserMedia)}`,
+                ];
+                if (!select) {
+                    setCameraDebug(lines);
+                    return [];
+                }
+
+                const previousValue = select.value;
+                select.innerHTML = '<option value="">Standardkamera</option>';
+                if (!navigator.mediaDevices?.enumerateDevices) {
+                    lines.push('enumerateDevices: nicht verfuegbar');
+                    setCameraDebug(lines);
+                    return [];
+                }
+
+                try {
+                    let devices = await navigator.mediaDevices.enumerateDevices();
+                    let videoDevices = devices.filter(device => device.kind === 'videoinput');
+                    if (unlockLabels && await unlockDeviceLabelsIfNeeded(videoDevices)) {
+                        devices = await navigator.mediaDevices.enumerateDevices();
+                        videoDevices = devices.filter(device => device.kind === 'videoinput');
+                    }
+                    lines.push(`Videogeraete: ${videoDevices.length}`);
+                    videoDevices.forEach((device, index) => {
+                        const option = document.createElement('option');
+                        option.value = device.deviceId;
+                        option.textContent = device.label || `Kamera ${index + 1}`;
+                        select.appendChild(option);
+                        lines.push(`- ${option.textContent}`);
+                    });
+                    if ([...select.options].some(option => option.value === previousValue)) {
+                        select.value = previousValue;
+                    }
+                    setCameraDebug(lines);
+                    return videoDevices;
+                } catch (error) {
+                    lines.push(`Device-Scan Fehler: ${describeError(error)}`);
+                    setCameraDebug(lines);
+                    return [];
+                }
+            }
+
+            function refreshDevicesWhenUiIsReady(attempt = 0) {
+                const select = document.getElementById(`camera-device-${sessionId}`);
+                if (select) {
+                    refreshDevices(true);
+                    return;
+                }
+                if (attempt < 50) {
+                    window.setTimeout(() => refreshDevicesWhenUiIsReady(attempt + 1), 100);
+                }
+            }
+
+            function waitForMetadata(timeoutMs = 2500) {
+                if (video.readyState >= 1 && video.videoWidth > 0) {
+                    return Promise.resolve();
+                }
+                return new Promise(resolve => {
+                    const done = () => {
+                        video.removeEventListener('loadedmetadata', done);
+                        window.clearTimeout(timer);
+                        resolve();
+                    };
+                    const timer = window.setTimeout(done, timeoutMs);
+                    video.addEventListener('loadedmetadata', done, { once: true });
+                });
+            }
+
+            async function requestCameraStream() {
+                const select = document.getElementById(`camera-device-${sessionId}`);
+                const selectedDeviceId = select?.value || '';
+                const attempts = [];
+
+                if (selectedDeviceId) {
+                    attempts.push({
+                        label: 'Ausgewaehltes Geraet',
+                        video: { deviceId: { exact: selectedDeviceId } },
+                    });
+                }
+
+                attempts.push(
+                    { label: 'Standardkamera', video: true },
+                    { label: '640x480', video: { width: { ideal: 640 }, height: { ideal: 480 } } },
+                    { label: 'Rueckkamera', video: { facingMode: { ideal: 'environment' } } },
+                );
+
+                const debugLines = [`Startversuche: ${attempts.length}`];
+                let lastError = null;
+                for (const attempt of attempts) {
+                    try {
+                        debugLines.push(`Versuche: ${attempt.label}`);
+                        const nextStream = await navigator.mediaDevices.getUserMedia({ video: attempt.video, audio: false });
+                        debugLines.push(`OK: ${attempt.label}`);
+                        setCameraDebug(debugLines);
+                        return nextStream;
+                    } catch (error) {
+                        lastError = error;
+                        debugLines.push(`Fehler ${attempt.label}: ${describeError(error)}`);
+                    }
+                }
+                setCameraDebug(debugLines);
+                throw lastError || new Error('Keine Kamera gefunden');
+            }
 
             async function startCamera() {
+                if (startingPromise) {
+                    return startingPromise;
+                }
+                if (started && video.readyState >= 2) {
+                    return;
+                }
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    setCameraStatus('nicht verfuegbar', 'Browser blockiert getUserMedia');
+                    return;
+                }
+                startingPromise = (async () => {
+                    try {
+                        setCameraStatus('startet');
+                        stopCurrentStream();
+                        await refreshDevices(false);
+                        stream = await requestCameraStream();
+                        stream.getVideoTracks().forEach(track => {
+                            track.addEventListener('ended', () => {
+                                started = false;
+                                setCameraStatus('unterbrochen', 'Video-Track beendet');
+                            });
+                            track.addEventListener('mute', () => {
+                                setCameraStatus('wartet', 'Video-Track liefert gerade keine Frames');
+                            });
+                            track.addEventListener('unmute', () => {
+                                if (started) {
+                                    setCameraStatus('aktiv');
+                                }
+                            });
+                        });
+                        video.srcObject = stream;
+                        video.muted = true;
+                        video.playsInline = true;
+                        await waitForMetadata();
+                        try {
+                            await video.play();
+                        } catch (playError) {
+                            if (video.readyState < 2 || video.videoWidth === 0) {
+                                throw playError;
+                            }
+                        }
+                        started = true;
+                        lastFrameSentAt = Date.now();
+                        consecutiveFrameErrors = 0;
+                        setCameraStatus('aktiv');
+                        await refreshDevices(false);
+                    } catch (error) {
+                        started = false;
+                        stopCurrentStream();
+                        setCameraStatus('Fehler', describeError(error));
+                        console.error('Browser camera could not be started:', error);
+                    } finally {
+                        startingPromise = null;
+                    }
+                })();
+                return startingPromise;
+            }
+
+            function streamIsLive() {
+                return stream?.getVideoTracks?.().some(track => track.readyState === 'live') || false;
+            }
+
+            function canvasToJpegBlob(timeoutMs = 1200) {
+                return new Promise((resolve, reject) => {
+                    const timer = window.setTimeout(() => reject(new Error('canvas.toBlob timeout')), timeoutMs);
+                    try {
+                        canvas.toBlob(blob => {
+                            window.clearTimeout(timer);
+                            if (blob) {
+                                resolve(blob);
+                            } else {
+                                reject(new Error('canvas.toBlob returned null'));
+                            }
+                        }, 'image/jpeg', 0.55);
+                    } catch (error) {
+                        window.clearTimeout(timer);
+                        reject(error);
+                    }
+                });
+            }
+
+            async function postFrame(blob) {
+                const controller = new AbortController();
+                const timer = window.setTimeout(() => controller.abort(), sendTimeoutMs);
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        video: {
-                            facingMode: 'environment',
-                            width: { ideal: 960 },
-                            height: { ideal: 540 },
-                            frameRate: { ideal: 30, max: 30 },
-                        },
-                        audio: false,
+                    await fetch('__CAMERA_POST_URL__', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'image/jpeg' },
+                        body: blob,
+                        signal: controller.signal,
+                        keepalive: false,
                     });
-                    video.srcObject = stream;
-                    await video.play();
-                } catch (error) {
-                    console.error('Browser camera could not be started:', error);
+                } finally {
+                    window.clearTimeout(timer);
                 }
             }
 
             async function sendFrame() {
-                if (sending || video.readyState < 2 || video.videoWidth === 0) {
+                if (!started) {
                     return;
                 }
+                if (!streamIsLive()) {
+                    started = false;
+                    setCameraStatus('unterbrochen', 'Stream nicht live');
+                    return;
+                }
+                if (sending && Date.now() - sendingStartedAt < sendTimeoutMs) {
+                    return;
+                }
+                if (sending && Date.now() - sendingStartedAt >= sendTimeoutMs) {
+                    sending = false;
+                    consecutiveFrameErrors += 1;
+                    setCameraStatus('aktiv', 'letzter Frame-Upload hing, versuche weiter');
+                }
+                if (video.readyState < 2 || video.videoWidth === 0) {
+                    return;
+                }
+
                 sending = true;
-                const maxWidth = 960;
-                const scale = Math.min(1, maxWidth / video.videoWidth);
-                canvas.width = Math.round(video.videoWidth * scale);
-                canvas.height = Math.round(video.videoHeight * scale);
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                canvas.toBlob(async blob => {
-                    try {
-                        if (blob) {
-                            await fetch('__CAMERA_POST_URL__', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'image/jpeg' },
-                                body: blob,
-                            });
-                        }
-                    } catch (error) {
-                        console.error('Browser camera frame could not be sent:', error);
-                    } finally {
-                        sending = false;
+                sendingStartedAt = Date.now();
+                try {
+                    const maxWidth = 560;
+                    const scale = Math.min(1, maxWidth / video.videoWidth);
+                    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+                    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const blob = await canvasToJpegBlob();
+                    await postFrame(blob);
+                    lastFrameSentAt = Date.now();
+                    consecutiveFrameErrors = 0;
+                    if (started && consecutiveFrameErrors > 0) {
+                        setCameraStatus('aktiv');
                     }
-                }, 'image/jpeg', 0.68);
+                } catch (error) {
+                    consecutiveFrameErrors += 1;
+                    console.error('Browser camera frame could not be sent:', error);
+                    if (consecutiveFrameErrors >= 3) {
+                        setCameraStatus('aktiv', `Frame-Upload Problem: ${describeError(error)}`);
+                    }
+                } finally {
+                    sending = false;
+                }
             }
 
-            startCamera();
-            window.leafMeasurementCameraTimer = window.setInterval(sendFrame, 66);
+            async function cameraWatchdog() {
+                if (!started || startingPromise) {
+                    return;
+                }
+                const now = Date.now();
+                if (!streamIsLive()) {
+                    started = false;
+                    setCameraStatus('unterbrochen', 'Stream beendet, starte neu');
+                    await startCamera();
+                    return;
+                }
+                if (lastFrameSentAt > 0 && now - lastFrameSentAt > 5000 && now - lastWatchdogRestartAt > 8000) {
+                    lastWatchdogRestartAt = now;
+                    started = false;
+                    setCameraStatus('haengt', 'Watchdog startet Kamera neu');
+                    await startCamera();
+                }
+            }
+
+            setCameraStatus('bereit');
+            refreshDevicesWhenUiIsReady();
+            window.addEventListener('load', () => refreshDevicesWhenUiIsReady());
+            window.addEventListener('beforeunload', stopCamera);
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) {
+                    setCameraStatus(started ? 'aktiv' : 'bereit');
+                } else {
+                    refreshDevices(true);
+                    if (started && video.paused) {
+                        video.play().catch(error => console.warn('Could not resume camera video:', error));
+                    }
+                }
+            });
+            window.leafMeasurementCameraTimer = window.setInterval(sendFrame, frameIntervalMs);
+            window.leafMeasurementCameraWatchdogTimer = window.setInterval(cameraWatchdog, 1000);
         })();
         </script>
     """
@@ -583,34 +1119,287 @@ def page() -> None:
         .replace('__SESSION_ID__', session_id)
         .replace('__CAMERA_POST_URL__', camera_post_url)
     )
+    drawing_script = """
+        <script>
+        (() => {
+            const sessionId = '__SESSION_ID__';
+            const imageUrl = '__CROPPED_URL__';
+            const damageUrl = '__MANUAL_DAMAGE_URL__';
+            const clearUrl = '__MANUAL_CLEAR_URL__';
+            window.leafManualDamage = window.leafManualDamage || {};
+            const state = window.leafManualDamage[sessionId] = {
+                tool: 'damage',
+                brushSize: 18,
+                enabled: true,
+                clear: async () => {
+                    await fetch(clearUrl, { method: 'POST' });
+                    const canvas = document.getElementById(`manual-damage-canvas-${sessionId}`);
+                    const ctx = canvas?.getContext('2d');
+                    if (canvas && ctx) {
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    }
+                },
+            };
 
-    with ui.row().classes('gap-4 items-start'):
-        with ui.column().classes('w-200 items-stretch'):
-            with ui.card().props('flat bordered').classes('w-200 items-stretch'):
-                with ui.grid(columns=2).classes('w-full gap-2'):
-                    with ui.row().classes('col-span-full items-center justify-between'):
+            function init() {
+                const img = document.getElementById(`cropped-image-${sessionId}`);
+                const canvas = document.getElementById(`manual-damage-canvas-${sessionId}`);
+                if (!img || !canvas) {
+                    window.setTimeout(init, 100);
+                    return;
+                }
+                const ctx = canvas.getContext('2d');
+                let drawing = false;
+                let points = [];
+                let activePointerId = null;
+                const supportsPointerEvents = window.PointerEvent !== undefined;
+
+                function syncCanvasSize() {
+                    const rect = canvas.getBoundingClientRect();
+                    if (rect.width < 2 || rect.height < 2) {
+                        return;
+                    }
+                    const old = document.createElement('canvas');
+                    old.width = canvas.width;
+                    old.height = canvas.height;
+                    old.getContext('2d').drawImage(canvas, 0, 0);
+                    canvas.width = Math.max(1, Math.round(rect.width));
+                    canvas.height = Math.max(1, Math.round(rect.height));
+                    canvas.style.width = `${rect.width}px`;
+                    canvas.style.height = `${rect.height}px`;
+                    ctx.drawImage(old, 0, 0, canvas.width, canvas.height);
+                }
+
+                function canvasPoint(event) {
+                    const source = event.touches?.[0] || event.changedTouches?.[0] || event;
+                    const rect = canvas.getBoundingClientRect();
+                    return {
+                        x: source.clientX - rect.left,
+                        y: source.clientY - rect.top,
+                    };
+                }
+
+                function drawLocalLine(a, b) {
+                    ctx.strokeStyle = state.tool === 'eraser'
+                        ? 'rgba(255,255,255,0.85)'
+                        : state.tool === 'correct'
+                            ? 'rgba(34,197,94,0.75)'
+                            : 'rgba(255,128,0,0.75)';
+                    ctx.lineWidth = state.brushSize;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.globalCompositeOperation = state.tool === 'eraser' ? 'destination-out' : 'source-over';
+                    ctx.beginPath();
+                    ctx.moveTo(a.x, a.y);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.stroke();
+                    ctx.globalCompositeOperation = 'source-over';
+                }
+
+                async function sendStroke() {
+                    if (!points.length) {
+                        return;
+                    }
+                    await fetch(damageUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            tool: state.tool,
+                            points,
+                            brush_size: state.brushSize,
+                            canvas_width: canvas.width,
+                            canvas_height: canvas.height,
+                        }),
+                    });
+                }
+
+                function startStroke(event) {
+                    syncCanvasSize();
+                    if (event.pointerId !== undefined) {
+                        activePointerId = event.pointerId;
+                        canvas.setPointerCapture?.(event.pointerId);
+                    }
+                    drawing = true;
+                    points = [canvasPoint(event)];
+                    event.preventDefault();
+                }
+
+                function moveStroke(event) {
+                    if (!drawing) {
+                        return;
+                    }
+                    if (event.pointerId !== undefined && activePointerId !== null && event.pointerId !== activePointerId) {
+                        return;
+                    }
+                    const point = canvasPoint(event);
+                    drawLocalLine(points[points.length - 1], point);
+                    points.push(point);
+                    event.preventDefault();
+                }
+
+                async function finishStroke(event) {
+                    if (!drawing) {
+                        return;
+                    }
+                    if (event.pointerId !== undefined && activePointerId !== null && event.pointerId !== activePointerId) {
+                        return;
+                    }
+                    drawing = false;
+                    activePointerId = null;
+                    if (points.length === 1) {
+                        drawLocalLine(points[0], points[0]);
+                    }
+                    await sendStroke();
+                    points = [];
+                    event.preventDefault();
+                }
+
+                if (supportsPointerEvents) {
+                    canvas.addEventListener('pointerdown', startStroke, { passive: false });
+                    canvas.addEventListener('pointermove', moveStroke, { passive: false });
+                    canvas.addEventListener('pointerup', finishStroke, { passive: false });
+                    canvas.addEventListener('pointercancel', finishStroke, { passive: false });
+                } else {
+                    canvas.addEventListener('touchstart', startStroke, { passive: false });
+                    canvas.addEventListener('touchmove', moveStroke, { passive: false });
+                    canvas.addEventListener('touchend', finishStroke, { passive: false });
+                    canvas.addEventListener('touchcancel', finishStroke, { passive: false });
+                }
+
+                img.addEventListener('load', syncCanvasSize);
+                window.addEventListener('resize', syncCanvasSize);
+                window.setInterval(() => {
+                    img.src = `${imageUrl}?t=${Date.now()}`;
+                    syncCanvasSize();
+                }, 700);
+            }
+
+            init();
+        })();
+        </script>
+    """
+    ui.add_body_html(
+        drawing_script
+        .replace('__SESSION_ID__', session_id)
+        .replace('__CROPPED_URL__', f'/video/{session_id}/cropped')
+        .replace('__MANUAL_DAMAGE_URL__', manual_damage_url)
+        .replace('__MANUAL_CLEAR_URL__', manual_clear_url)
+    )
+
+    with ui.row().classes('leaf-shell gap-4'):
+        with ui.column().classes('leaf-preview-panel items-stretch'):
+            with ui.card().props('flat bordered').classes('w-full items-stretch'):
+                with ui.element('div').classes('leaf-preview-grid'):
+                    with ui.row().classes('leaf-span-full items-center justify-between'):
                         ui.label('Fullframe')
-                        freeze_button = ui.button('Freeze')
-                    full_image = ui.interactive_image(f'/video/{session_id}/full').classes('border-none w-full col-span-full')
+                        with ui.row().classes('items-center gap-2'):
+                            ui.label('Kamera: bereit').props(f'id=camera-status-{session_id}').classes('text-xs text-gray-500')
+                            ui.button(
+                                'Kamera starten',
+                                on_click=lambda: ui.run_javascript(
+                                    f"window.leafMeasurementCamera?.['{session_id}']?.start()"
+                                ),
+                            ).props('dense')
+                            ui.button(
+                                'Stop',
+                                on_click=lambda: ui.run_javascript(
+                                    f"window.leafMeasurementCamera?.['{session_id}']?.stop()"
+                                ),
+                            ).props('dense')
+                            freeze_button = ui.button('Freeze').props('dense')
+                    with ui.row().classes('leaf-span-full items-center gap-2'):
+                        ui.html(
+                            f'<select id="camera-device-{session_id}" '
+                            'style="min-width:260px;max-width:100%;padding:4px 8px;border:1px solid #999;border-radius:4px;">'
+                            '<option value="">Standardkamera</option></select>'
+                        )
+                        ui.button(
+                            'Kameras suchen',
+                            on_click=lambda: ui.run_javascript(
+                                f"window.leafMeasurementCamera?.['{session_id}']?.refreshDevices(true)"
+                            ),
+                        ).props('dense')
+                    ui.html(
+                        f'<pre id="camera-debug-{session_id}" '
+                        'style="grid-column:1/-1;white-space:pre-wrap;font-size:11px;line-height:1.25;'
+                        'margin:0;padding:6px 8px;border:1px solid #ddd;border-radius:4px;'
+                        'max-height:96px;overflow:auto;background:rgba(127,127,127,0.08);"></pre>'
+                    ).classes('leaf-span-full')
+                    full_image = ui.interactive_image(f'/video/{session_id}/full').classes('border-none w-full leaf-span-full')
 
                     async def handle_freeze_click() -> None:
                         await toggle_freeze(state, freeze_button, full_image)
 
                     freeze_button.on('click', handle_freeze_click)
 
-                    ui.label('Cropped')
-                    ui.label('Result')
-                    cropped_image = ui.interactive_image(f'/video/{session_id}/cropped').classes('border-none w-full')
+                    with ui.row().classes('leaf-span-full items-center gap-2'):
+                        ui.label('Manuell auf Cropped zeichnen').classes('font-bold')
+                        manual_switch = ui.switch(
+                            'Einrechnen',
+                            value=state.manual_damage_enabled,
+                            on_change=lambda event: set_manual_damage_enabled(state, session_id, event.value),
+                        )
+                        ui.button(
+                            'Schaden',
+                            on_click=lambda: ui.run_javascript(
+                                f"window.leafManualDamage?.['{session_id}'] && "
+                                f"(window.leafManualDamage['{session_id}'].tool = 'damage')"
+                            ),
+                        ).props('dense')
+                        ui.button(
+                            'Korrekt',
+                            on_click=lambda: ui.run_javascript(
+                                f"window.leafManualDamage?.['{session_id}'] && "
+                                f"(window.leafManualDamage['{session_id}'].tool = 'correct')"
+                            ),
+                        ).props('dense')
+                        ui.button(
+                            'Radierer',
+                            on_click=lambda: ui.run_javascript(
+                                f"window.leafManualDamage?.['{session_id}'] && "
+                                f"(window.leafManualDamage['{session_id}'].tool = 'eraser')"
+                            ),
+                        ).props('dense')
+                        ui.button(
+                            'Alles löschen',
+                            on_click=lambda: ui.run_javascript(
+                                f"window.leafManualDamage?.['{session_id}']?.clear()"
+                            ),
+                        ).props('dense')
+                        brush_size = ui.number(
+                            'Größe',
+                            value=state.manual_brush_size,
+                            min=2,
+                            max=120,
+                            step=2,
+                            on_change=lambda event: set_manual_brush_size(state, session_id, event.value),
+                        ).classes('w-24')
+                        manual_switch.tooltip('Schaltet die manuelle Maske in Berechnung und Ergebnisanzeige ein oder aus')
+                        brush_size.tooltip('Breite von Pinsel und Radierer')
+                        ui.switch(
+                            'Convex-Randschäden',
+                            value=state.auto_edge_damage_enabled,
+                            on_change=lambda event: set_auto_edge_damage_enabled(state, event.value),
+                        ).tooltip('Schaltet nur den Bereich zwischen Blattkontur und Convex Hull ein oder aus')
+
+                    ui.label('Cropped - hier malen').classes('leaf-preview-title')
+                    ui.label('Result').classes('leaf-preview-title')
+                    ui.html(f'''
+                        <div id="cropped-draw-wrap-{session_id}" style="position:relative;width:100%;aspect-ratio:1/1;touch-action:none;overscroll-behavior:contain;-webkit-user-select:none;user-select:none;">
+                            <img id="cropped-image-{session_id}" src="/video/{session_id}/cropped" style="position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border:2px solid #f59e0b;background:#111;" draggable="false">
+                            <canvas id="manual-damage-canvas-{session_id}" style="position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none;overscroll-behavior:contain;border:2px dashed rgba(245,158,11,0.7);"></canvas>
+                        </div>
+                    ''').classes('border-none w-full')
                     result_image = ui.interactive_image(f'/video/{session_id}/result').classes('border-none w-full')
 
-                    ui.label('Damage Mask').classes('col-span-full')
-                    masked_image = ui.interactive_image(f'/video/{session_id}/mask').classes('border-none w-full col-span-full')
+                    ui.label('Damage Mask').classes('leaf-span-full leaf-preview-title')
+                    masked_image = ui.interactive_image(f'/video/{session_id}/mask').classes('border-none w-full leaf-span-full')
 
-                ui.timer(interval=0.08, callback=full_image.force_reload)
-                for image in (cropped_image, result_image, masked_image):
-                    ui.timer(interval=0.3, callback=image.force_reload)
+                ui.timer(interval=0.25, callback=full_image.force_reload)
+                for image in (result_image, masked_image):
+                    ui.timer(interval=0.8, callback=image.force_reload)
 
-        with ui.column().classes('w-100 items-stretch'):
+        with ui.column().classes('leaf-settings-panel items-stretch'):
             with ui.card().props('flat bordered'):
                 with ui.row():
                     ui.select(langlist, label=text('select_language', 'Sprache'), on_change=load_language, value=sellang)
@@ -706,6 +1495,34 @@ def page() -> None:
                             on_change=lambda event: update_hsv_setting_for(state, 'upper_hsv', event.value),
                         ).tooltip(text('upper_input_tooltip', 'Obere Farbgrenze fuer den Filter'))
 
+                        ui.label('HSV Live-Grenzen').classes('font-medium mt-3')
+                        ui.label('Hue / Farbton').classes('text-sm text-gray-500')
+                        ui.range(
+                            min=0,
+                            max=179,
+                            step=1,
+                            value={'min': app_settings.lower_hsv[0], 'max': app_settings.upper_hsv[0]},
+                            on_change=lambda event: update_hsv_range(state, 0, event.value),
+                        ).props('label-always').classes('w-full')
+
+                        ui.label('Saturation / Saettigung').classes('text-sm text-gray-500')
+                        ui.range(
+                            min=0,
+                            max=255,
+                            step=1,
+                            value={'min': app_settings.lower_hsv[1], 'max': app_settings.upper_hsv[1]},
+                            on_change=lambda event: update_hsv_range(state, 1, event.value),
+                        ).props('label-always').classes('w-full')
+
+                        ui.label('Value / Helligkeit').classes('text-sm text-gray-500')
+                        ui.range(
+                            min=0,
+                            max=255,
+                            step=1,
+                            value={'min': app_settings.lower_hsv[2], 'max': app_settings.upper_hsv[2]},
+                            on_change=lambda event: update_hsv_range(state, 2, event.value),
+                        ).props('label-always').classes('w-full')
+
                 with ui.card().props('flat bordered').classes('items-stretch'):
                     with ui.expansion(text('label_debug_settings', 'Debug Einstellungen')).classes('w-80'):
                         markers = ui.checkbox(text('marker_checkbox', 'Marker anzeigen'), value=app_settings.draw_marker)
@@ -747,6 +1564,35 @@ def update_measurement_labels(
     status_label.set_text(f"Status: {last_measurement.get('status', '-')}")
 
 
+def set_manual_damage_enabled(state: SessionState, session_id: str, enabled: bool) -> None:
+    state.manual_damage_enabled = bool(enabled)
+    state.manual_damage_revision += 1
+    state.processed_cache = {}
+    enabled_js = 'true' if state.manual_damage_enabled else 'false'
+    ui.run_javascript(
+        f"window.leafManualDamage?.['{session_id}'] && "
+        f"(window.leafManualDamage['{session_id}'].enabled = {enabled_js})"
+    )
+
+
+def set_manual_brush_size(state: SessionState, session_id: str, value: Any) -> None:
+    try:
+        brush_size = int(float(value))
+    except (TypeError, ValueError):
+        return
+    state.manual_brush_size = max(2, min(120, brush_size))
+    ui.run_javascript(
+        f"window.leafManualDamage?.['{session_id}'] && "
+        f"(window.leafManualDamage['{session_id}'].brushSize = {state.manual_brush_size})"
+    )
+
+
+def set_auto_edge_damage_enabled(state: SessionState, enabled: bool) -> None:
+    state.auto_edge_damage_enabled = bool(enabled)
+    state.manual_damage_revision += 1
+    state.processed_cache = {}
+
+
 async def toggle_freeze(state: SessionState, button: ui.button, full_image: ui.interactive_image) -> None:
     async with get_processing_lock(state):
         if state.freeze_enabled:
@@ -764,6 +1610,7 @@ async def toggle_freeze(state: SessionState, button: ui.button, full_image: ui.i
                 ui.notify('Noch kein Browser-Kamerabild empfangen')
                 return
             state.frozen_frame = state.browser_frame.copy()
+            state.browser_frame_jpeg = None
         elif state.uploaded_image is not None:
             state.frozen_frame = state.uploaded_image.copy()
         else:
