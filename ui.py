@@ -47,6 +47,7 @@ class SessionState:
     frozen_frame: np.ndarray | None = None
     manual_damage_mask: np.ndarray | None = None
     manual_correct_mask: np.ndarray | None = None
+    manual_exclude_mask: np.ndarray | None = None
     manual_damage_enabled: bool = True
     manual_limit_to_leaf: bool = False
     manual_leaf_shrink_px: int = 0
@@ -546,6 +547,7 @@ def process_frame(
     settings: dict[str, Any],
     manual_damage_mask: np.ndarray | None = None,
     manual_correct_mask: np.ndarray | None = None,
+    manual_exclude_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
     dig_width = max(100, min(2500, int(settings['dig_width'])))
     kernel_size = max(1, min(100, int(settings['kernel_size'])))
@@ -691,6 +693,7 @@ def process_frame(
 
     manual_mask_for_display = np.zeros_like(damage_mask)
     correct_mask_for_display = np.zeros_like(damage_mask)
+    exclude_mask_for_display = np.zeros_like(damage_mask)
     if settings.get('manual_damage_enabled') and manual_damage_mask is not None:
         if manual_damage_mask.shape != damage_mask.shape:
             manual_damage_mask = cv2.resize(
@@ -715,9 +718,23 @@ def process_frame(
             correct_mask_for_display = cv2.bitwise_and(correct_mask_for_display, manual_limit_mask)
         damage_mask = cv2.bitwise_and(damage_mask, cv2.bitwise_not(correct_mask_for_display))
 
+    if settings.get('manual_damage_enabled') and manual_exclude_mask is not None:
+        if manual_exclude_mask.shape != damage_mask.shape:
+            manual_exclude_mask = cv2.resize(
+                manual_exclude_mask,
+                (damage_mask.shape[1], damage_mask.shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            )
+        exclude_mask_for_display = manual_exclude_mask.copy()
+        if settings.get('manual_limit_to_leaf'):
+            exclude_mask_for_display = cv2.bitwise_and(exclude_mask_for_display, manual_limit_mask)
+        damage_mask = cv2.bitwise_and(damage_mask, cv2.bitwise_not(exclude_mask_for_display))
+
     measured_green_mask = cv2.bitwise_or(green_mask, correct_mask_for_display)
+    measured_green_mask = cv2.bitwise_and(measured_green_mask, cv2.bitwise_not(exclude_mask_for_display))
+    measured_hull_mask = cv2.bitwise_and(hull_mask, cv2.bitwise_not(exclude_mask_for_display))
     green_pixels = cv2.countNonZero(measured_green_mask)
-    hull_pixels = cv2.countNonZero(hull_mask)
+    hull_pixels = cv2.countNonZero(measured_hull_mask)
     damage_pixels = cv2.countNonZero(damage_mask)
 
     area = round(green_pixels * pixel_area, 3)
@@ -729,6 +746,7 @@ def process_frame(
     result[damage_mask > 0] = (0, 0, 255)
     result[manual_mask_for_display > 0] = (0, 128, 255)
     result[correct_mask_for_display > 0] = (0, 255, 0)
+    result[exclude_mask_for_display > 0] = (255, 0, 255)
 
     if settings['draw_convex']:
         cv2.drawContours(result, [hull], -1, (255, 0, 0), 5)
@@ -829,7 +847,15 @@ async def get_processed_result(session_id: str) -> dict[str, Any] | None:
 
         manual_damage_mask = state.manual_damage_mask.copy() if state.manual_damage_mask is not None else None
         manual_correct_mask = state.manual_correct_mask.copy() if state.manual_correct_mask is not None else None
-        result = await run.io_bound(process_frame, frame, settings, manual_damage_mask, manual_correct_mask)
+        manual_exclude_mask = state.manual_exclude_mask.copy() if state.manual_exclude_mask is not None else None
+        result = await run.io_bound(
+            process_frame,
+            frame,
+            settings,
+            manual_damage_mask,
+            manual_correct_mask,
+            manual_exclude_mask,
+        )
         state.last_measurement = result['measurement']
         state.processed_cache = {
             'key': key,
@@ -900,6 +926,12 @@ def ensure_manual_correct_mask(state: SessionState, width: int, height: int) -> 
     return state.manual_correct_mask
 
 
+def ensure_manual_exclude_mask(state: SessionState, width: int, height: int) -> np.ndarray:
+    if state.manual_exclude_mask is None or state.manual_exclude_mask.shape != (height, width):
+        state.manual_exclude_mask = np.zeros((height, width), dtype=np.uint8)
+    return state.manual_exclude_mask
+
+
 @app.post('/manual-damage/{session_id}')
 async def receive_manual_damage(session_id: str, request: Request) -> Response:
     state = get_session(session_id)
@@ -910,7 +942,7 @@ async def receive_manual_damage(session_id: str, request: Request) -> Response:
 
     tool = payload.get('tool')
     points = payload.get('points') or []
-    if tool not in {'brush', 'damage', 'correct', 'eraser'} or len(points) == 0:
+    if tool not in {'brush', 'damage', 'correct', 'exclude', 'eraser'} or len(points) == 0:
         return Response(status_code=400)
 
     dig_width = max(100, min(2500, int(state.settings.dig_width or 700)))
@@ -921,6 +953,7 @@ async def receive_manual_damage(session_id: str, request: Request) -> Response:
 
     damage_mask = ensure_manual_damage_mask(state, dig_width, dig_width)
     correct_mask = ensure_manual_correct_mask(state, dig_width, dig_width)
+    exclude_mask = ensure_manual_exclude_mask(state, dig_width, dig_width)
 
     scaled_points = []
     for point in points:
@@ -946,12 +979,19 @@ async def receive_manual_damage(session_id: str, request: Request) -> Response:
     if tool in {'brush', 'damage'}:
         draw(damage_mask, 255)
         draw(correct_mask, 0)
+        draw(exclude_mask, 0)
     elif tool == 'correct':
         draw(correct_mask, 255)
         draw(damage_mask, 0)
+        draw(exclude_mask, 0)
+    elif tool == 'exclude':
+        draw(exclude_mask, 255)
+        draw(damage_mask, 0)
+        draw(correct_mask, 0)
     else:
         draw(damage_mask, 0)
         draw(correct_mask, 0)
+        draw(exclude_mask, 0)
 
     state.manual_damage_revision += 1
     state.processed_cache = {}
@@ -965,6 +1005,8 @@ async def clear_manual_damage(session_id: str) -> Response:
         state.manual_damage_mask.fill(0)
     if state.manual_correct_mask is not None:
         state.manual_correct_mask.fill(0)
+    if state.manual_exclude_mask is not None:
+        state.manual_exclude_mask.fill(0)
     state.manual_damage_revision += 1
     state.processed_cache = {}
     return Response(status_code=204)
@@ -1561,7 +1603,9 @@ def page() -> None:
                         ? 'rgba(255,255,255,0.85)'
                         : state.tool === 'correct'
                             ? 'rgba(34,197,94,0.75)'
-                            : 'rgba(255,128,0,0.75)';
+                            : state.tool === 'exclude'
+                                ? 'rgba(168,85,247,0.75)'
+                                : 'rgba(255,128,0,0.75)';
                     ctx.lineWidth = state.brushSize;
                     ctx.lineCap = 'round';
                     ctx.lineJoin = 'round';
@@ -1739,6 +1783,13 @@ def page() -> None:
                             on_click=lambda: ui.run_javascript(
                                 f"window.leafManualDamage?.['{session_id}'] && "
                                 f"(window.leafManualDamage['{session_id}'].tool = 'correct')"
+                            ),
+                        ).props('dense')
+                        ui.button(
+                            'Entfernen',
+                            on_click=lambda: ui.run_javascript(
+                                f"window.leafManualDamage?.['{session_id}'] && "
+                                f"(window.leafManualDamage['{session_id}'].tool = 'exclude')"
                             ),
                         ).props('dense')
                         ui.button(
