@@ -1029,6 +1029,93 @@ def page() -> None:
     async def handle_session_upload(event: Any) -> None:
         await handle_upload(state, event)
 
+    translatable_text: list[tuple[Any, str, str]] = []
+    translatable_label: list[tuple[Any, str, str]] = []
+
+    def tr(key: str, fallback: str) -> str:
+        return text(key, fallback)
+
+    def remember_text(element: Any, key: str, fallback: str) -> Any:
+        translatable_text.append((element, key, fallback))
+        return element
+
+    def remember_label(element: Any, key: str, fallback: str) -> Any:
+        translatable_label.append((element, key, fallback))
+        return element
+
+    def label_t(key: str, fallback: str) -> Any:
+        return remember_text(ui.label(tr(key, fallback)), key, fallback)
+
+    def button_t(key: str, fallback: str, **kwargs: Any) -> Any:
+        return remember_text(ui.button(tr(key, fallback), **kwargs), key, fallback)
+
+    def switch_t(key: str, fallback: str, **kwargs: Any) -> Any:
+        return remember_text(ui.switch(tr(key, fallback), **kwargs), key, fallback)
+
+    def checkbox_t(key: str, fallback: str, **kwargs: Any) -> Any:
+        return remember_text(ui.checkbox(tr(key, fallback), **kwargs), key, fallback)
+
+    def select_t(key: str, fallback: str, *args: Any, **kwargs: Any) -> Any:
+        element = ui.select(*args, label=tr(key, fallback), **kwargs)
+        return remember_label(element, key, fallback)
+
+    def number_t(key: str, fallback: str, **kwargs: Any) -> Any:
+        element = ui.number(label=tr(key, fallback), **kwargs)
+        return remember_label(element, key, fallback)
+
+    def apply_translations() -> None:
+        for element, key, fallback in translatable_text:
+            if hasattr(element, 'set_text'):
+                element.set_text(tr(key, fallback))
+        for element, key, fallback in translatable_label:
+            if hasattr(element, 'set_label'):
+                element.set_label(tr(key, fallback))
+        try:
+            if state.freeze_enabled:
+                freeze_button.set_text(tr('live_button', 'Live'))
+        except NameError:
+            pass
+        fullscreen_text = json.dumps(tr('fullscreen_button', 'Vollbild'))
+        fullscreen_close_text = json.dumps(tr('fullscreen_close', 'Schließen'))
+        ui.run_javascript(
+            f"const btn = document.getElementById('cropped-fullscreen-button-{session_id}');"
+            f"const drawState = window.leafManualDamage?.['{session_id}'];"
+            f"if (btn) btn.textContent = drawState?.fullscreen ? {fullscreen_close_text} : {fullscreen_text};"
+            f"window.leafMeasurementCamera?.['{session_id}']?.updateTexts({camera_texts_json()});"
+        )
+
+    def handle_language_change(event: Any) -> None:
+        load_language(event, reload_page=False)
+        apply_translations()
+
+    def camera_texts_json() -> str:
+        return json.dumps({
+            'prefix': tr('camera_status_prefix', 'Kamera'),
+            'bereit': tr('camera_state_ready', 'bereit'),
+            'gestoppt': tr('camera_state_stopped', 'gestoppt'),
+            'startet': tr('camera_state_starting', 'startet'),
+            'aktiv': tr('camera_state_active', 'aktiv'),
+            'wartet': tr('camera_state_waiting', 'wartet'),
+            'unterbrochen': tr('camera_state_interrupted', 'unterbrochen'),
+            'haengt': tr('camera_state_hanging', 'hängt'),
+            'Fehler': tr('camera_state_error', 'Fehler'),
+            'nicht verfuegbar': tr('camera_state_unavailable', 'nicht verfügbar'),
+            'hole Kameranamen': tr('camera_detail_getting_names', 'hole Kameranamen'),
+            'Kameranamen noch gesperrt': tr('camera_detail_names_locked', 'Kameranamen noch gesperrt'),
+            'Browser blockiert getUserMedia': tr('camera_detail_get_user_media_blocked', 'Browser blockiert getUserMedia'),
+            'Video-Track beendet': tr('camera_detail_track_ended', 'Video-Track beendet'),
+            'Video-Track liefert gerade keine Frames': tr('camera_detail_no_frames', 'Video-Track liefert gerade keine Frames'),
+            'Stream nicht live': tr('camera_detail_stream_not_live', 'Stream nicht live'),
+            'letzter Frame-Upload hing, versuche weiter': tr('camera_detail_upload_stuck', 'letzter Frame-Upload hing, versuche weiter'),
+            'Stream beendet, starte neu': tr('camera_detail_stream_restart', 'Stream beendet, starte neu'),
+            'Watchdog startet Kamera neu': tr('camera_detail_watchdog_restart', 'Watchdog startet Kamera neu'),
+            'Standardkamera': tr('camera_default', 'Standardkamera'),
+            'Kamera': tr('camera_fallback_name', 'Kamera'),
+            'nicht verfuegbar_device_scan': tr('camera_device_scan_unavailable', 'enumerateDevices: nicht verfügbar'),
+            'Device-Scan Fehler': tr('camera_device_scan_error', 'Device-Scan Fehler'),
+            'Videogeraete': tr('camera_video_devices', 'Videogeräte'),
+        }, ensure_ascii=False)
+
     ui.add_head_html("""
         <style>
             .leaf-shell {
@@ -1056,6 +1143,40 @@ def page() -> None:
             .leaf-preview-title {
                 font-weight: 600;
                 margin-top: 4px;
+            }
+            .leaf-cropped-draw-wrap {
+                position: relative;
+                width: 100%;
+                aspect-ratio: 1 / 1;
+                overflow: hidden;
+                box-sizing: border-box;
+                touch-action: none;
+                overscroll-behavior: contain;
+                -webkit-user-select: none;
+                user-select: none;
+            }
+            .leaf-cropped-image,
+            .leaf-manual-damage-canvas {
+                position: absolute;
+                inset: 0;
+                display: block;
+                width: 100%;
+                height: 100%;
+                box-sizing: border-box;
+                user-select: none;
+                -webkit-user-select: none;
+            }
+            .leaf-cropped-image {
+                object-fit: contain;
+                -webkit-touch-callout: none;
+                border: 2px solid #f59e0b;
+                background: #111;
+            }
+            .leaf-manual-damage-canvas {
+                cursor: crosshair;
+                touch-action: none;
+                overscroll-behavior: contain;
+                border: 2px dashed rgba(245, 158, 11, 0.7);
             }
             @media (max-width: 980px) {
                 .leaf-shell {
@@ -1103,9 +1224,13 @@ def page() -> None:
             }
             .leaf-draw-fullscreen img,
             .leaf-draw-fullscreen canvas {
-                inset: 12px !important;
-                width: calc(100% - 24px) !important;
-                height: calc(100% - 24px) !important;
+                inset: auto !important;
+                left: 50% !important;
+                top: 50% !important;
+                width: min(calc(100vw - 24px), calc(100dvh - 24px)) !important;
+                height: min(calc(100vw - 24px), calc(100dvh - 24px)) !important;
+                transform: translate(-50%, -50%);
+                box-sizing: border-box !important;
                 border-width: 0 !important;
             }
             .leaf-draw-fullscreen .leaf-cropped-fullscreen-button {
@@ -1124,6 +1249,7 @@ def page() -> None:
             const canvas = document.getElementById('browser-camera-canvas-__SESSION_ID__');
             const ctx = canvas.getContext('2d');
             const sessionId = '__SESSION_ID__';
+            let cameraTexts = __CAMERA_TEXTS__;
             let stream = null;
             let started = false;
             let startingPromise = null;
@@ -1133,6 +1259,8 @@ def page() -> None:
             let lastWatchdogRestartAt = 0;
             let consecutiveFrameErrors = 0;
             let deviceRefreshRevision = 0;
+            let lastCameraStatus = 'bereit';
+            let lastCameraError = '';
             const frameIntervalMs = 350;
             const sendTimeoutMs = 2500;
 
@@ -1141,13 +1269,31 @@ def page() -> None:
                 start: startCamera,
                 stop: stopCamera,
                 refreshDevices,
+                updateTexts: texts => {
+                    cameraTexts = { ...cameraTexts, ...texts };
+                    renderCameraStatus();
+                },
             };
 
-            function setCameraStatus(status, error = '') {
+            function cameraText(value) {
+                return cameraTexts[value] || value;
+            }
+
+            function renderCameraStatus() {
                 const label = document.getElementById(`camera-status-${sessionId}`);
-                if (label) {
-                    label.textContent = error ? `Kamera: ${status} (${error})` : `Kamera: ${status}`;
+                if (!label) {
+                    return;
                 }
+                const prefix = cameraTexts.prefix || 'Kamera';
+                const status = cameraText(lastCameraStatus);
+                const error = cameraText(lastCameraError);
+                label.textContent = error ? `${prefix}: ${status} (${error})` : `${prefix}: ${status}`;
+            }
+
+            function setCameraStatus(status, error = '') {
+                lastCameraStatus = status;
+                lastCameraError = error;
+                renderCameraStatus();
             }
 
             function setCameraDebug(lines) {
@@ -1218,7 +1364,7 @@ def page() -> None:
                     lines.push('enumerateDevices: nicht verfuegbar');
                     const defaultOption = document.createElement('option');
                     defaultOption.value = '';
-                    defaultOption.textContent = 'Standardkamera';
+                    defaultOption.textContent = cameraText('Standardkamera');
                     select.replaceChildren(defaultOption);
                     setCameraDebug(lines);
                     return [];
@@ -1248,13 +1394,13 @@ def page() -> None:
 
                     const defaultOption = document.createElement('option');
                     defaultOption.value = '';
-                    defaultOption.textContent = 'Standardkamera';
+                    defaultOption.textContent = cameraText('Standardkamera');
                     const options = [defaultOption];
-                    lines.push(`Videogeraete: ${uniqueVideoDevices.length}`);
+                    lines.push(`${cameraText('Videogeraete')}: ${uniqueVideoDevices.length}`);
                     uniqueVideoDevices.forEach((device, index) => {
                         const option = document.createElement('option');
                         option.value = device.deviceId;
-                        option.textContent = device.label || `Kamera ${index + 1}`;
+                        option.textContent = device.label || `${cameraText('Kamera')} ${index + 1}`;
                         options.push(option);
                         lines.push(`- ${option.textContent}`);
                     });
@@ -1523,6 +1669,7 @@ def page() -> None:
         camera_script
         .replace('__SESSION_ID__', session_id)
         .replace('__CAMERA_POST_URL__', camera_post_url)
+        .replace('__CAMERA_TEXTS__', camera_texts_json())
     )
     drawing_script = """
         <script>
@@ -1574,8 +1721,6 @@ def page() -> None:
                     old.getContext('2d').drawImage(canvas, 0, 0);
                     canvas.width = Math.max(1, Math.round(rect.width));
                     canvas.height = Math.max(1, Math.round(rect.height));
-                    canvas.style.width = `${rect.width}px`;
-                    canvas.style.height = `${rect.height}px`;
                     ctx.drawImage(old, 0, 0, canvas.width, canvas.height);
                 }
 
@@ -1584,7 +1729,7 @@ def page() -> None:
                     wrap.classList.toggle('leaf-draw-fullscreen', state.fullscreen);
                     document.body.classList.toggle('leaf-draw-fullscreen-active', state.fullscreen);
                     if (fullscreenButton) {
-                        fullscreenButton.textContent = state.fullscreen ? 'Schliessen' : 'Vollbild';
+                        fullscreenButton.textContent = state.fullscreen ? '__FULLSCREEN_CLOSE__' : '__FULLSCREEN_BUTTON__';
                     }
                     window.setTimeout(syncCanvasSize, 60);
                 }
@@ -1592,9 +1737,14 @@ def page() -> None:
                 function canvasPoint(event) {
                     const source = event.touches?.[0] || event.changedTouches?.[0] || event;
                     const rect = canvas.getBoundingClientRect();
+                    const x = source.clientX - rect.left;
+                    const y = source.clientY - rect.top;
+                    if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+                        return null;
+                    }
                     return {
-                        x: source.clientX - rect.left,
-                        y: source.clientY - rect.top,
+                        x: Math.max(0, Math.min(canvas.width, x)),
+                        y: Math.max(0, Math.min(canvas.height, y)),
                     };
                 }
 
@@ -1636,12 +1786,16 @@ def page() -> None:
 
                 function startStroke(event) {
                     syncCanvasSize();
+                    const point = canvasPoint(event);
+                    if (!point) {
+                        return;
+                    }
                     if (event.pointerId !== undefined) {
                         activePointerId = event.pointerId;
                         canvas.setPointerCapture?.(event.pointerId);
                     }
                     drawing = true;
-                    points = [canvasPoint(event)];
+                    points = [point];
                     event.preventDefault();
                 }
 
@@ -1653,6 +1807,10 @@ def page() -> None:
                         return;
                     }
                     const point = canvasPoint(event);
+                    if (!point) {
+                        finishStroke(event);
+                        return;
+                    }
                     drawLocalLine(points[points.length - 1], point);
                     points.push(point);
                     event.preventDefault();
@@ -1716,6 +1874,8 @@ def page() -> None:
         .replace('__CROPPED_URL__', f'/video/{session_id}/cropped')
         .replace('__MANUAL_DAMAGE_URL__', manual_damage_url)
         .replace('__MANUAL_CLEAR_URL__', manual_clear_url)
+        .replace('__FULLSCREEN_BUTTON__', tr('fullscreen_button', 'Vollbild'))
+        .replace('__FULLSCREEN_CLOSE__', tr('fullscreen_close', 'Schließen'))
     )
 
     with ui.row().classes('leaf-shell gap-4'):
@@ -1723,29 +1883,32 @@ def page() -> None:
             with ui.card().props('flat bordered').classes('w-full items-stretch'):
                 with ui.element('div').classes('leaf-preview-grid'):
                     with ui.row().classes('leaf-span-full items-center justify-between'):
-                        ui.label('Fullframe')
+                        label_t('preview_fullframe', 'Fullframe')
                         with ui.row().classes('items-center gap-2'):
-                            ui.label('Kamera: bereit').props(f'id=camera-status-{session_id}').classes('text-xs text-gray-500')
-                            ui.button(
+                            label_t('camera_status_ready', 'Kamera: bereit').props(f'id=camera-status-{session_id}').classes('text-xs text-gray-500')
+                            button_t(
+                                'camera_start',
                                 'Kamera starten',
                                 on_click=lambda: ui.run_javascript(
                                     f"window.leafMeasurementCamera?.['{session_id}']?.start()"
                                 ),
                             ).props('dense')
-                            ui.button(
+                            button_t(
+                                'camera_stop',
                                 'Stop',
                                 on_click=lambda: ui.run_javascript(
                                     f"window.leafMeasurementCamera?.['{session_id}']?.stop()"
                                 ),
                             ).props('dense')
-                            freeze_button = ui.button('Freeze').props('dense')
+                            freeze_button = button_t('freeze_button', 'Freeze').props('dense')
                     with ui.row().classes('leaf-span-full items-center gap-2'):
                         ui.html(
                             f'<select id="camera-device-{session_id}" '
                             'style="min-width:260px;max-width:100%;padding:4px 8px;border:1px solid #999;border-radius:4px;">'
                             '<option value="">Standardkamera</option></select>'
                         )
-                        ui.button(
+                        button_t(
+                            'camera_search',
                             'Kameras suchen',
                             on_click=lambda: ui.run_javascript(
                                 f"window.leafMeasurementCamera?.['{session_id}']?.refreshDevices(true)"
@@ -1765,47 +1928,54 @@ def page() -> None:
                     freeze_button.on('click', handle_freeze_click)
 
                     with ui.row().classes('leaf-span-full items-center gap-2'):
-                        ui.label('Manuell auf Cropped zeichnen').classes('font-bold')
-                        manual_switch = ui.switch(
+                        label_t('manual_draw_title', 'Manuell auf Cropped zeichnen').classes('font-bold')
+                        manual_switch = switch_t(
+                            'manual_include',
                             'Einrechnen',
                             value=state.manual_damage_enabled,
                             on_change=lambda event: set_manual_damage_enabled(state, session_id, event.value),
                         )
-                        ui.button(
+                        button_t(
+                            'tool_damage',
                             'Schaden',
                             on_click=lambda: ui.run_javascript(
                                 f"window.leafManualDamage?.['{session_id}'] && "
                                 f"(window.leafManualDamage['{session_id}'].tool = 'damage')"
                             ),
                         ).props('dense')
-                        ui.button(
+                        button_t(
+                            'tool_correct',
                             'Korrekt',
                             on_click=lambda: ui.run_javascript(
                                 f"window.leafManualDamage?.['{session_id}'] && "
                                 f"(window.leafManualDamage['{session_id}'].tool = 'correct')"
                             ),
                         ).props('dense')
-                        ui.button(
+                        button_t(
+                            'tool_exclude',
                             'Entfernen',
                             on_click=lambda: ui.run_javascript(
                                 f"window.leafManualDamage?.['{session_id}'] && "
                                 f"(window.leafManualDamage['{session_id}'].tool = 'exclude')"
                             ),
                         ).props('dense')
-                        ui.button(
+                        button_t(
+                            'tool_eraser',
                             'Radierer',
                             on_click=lambda: ui.run_javascript(
                                 f"window.leafManualDamage?.['{session_id}'] && "
                                 f"(window.leafManualDamage['{session_id}'].tool = 'eraser')"
                             ),
                         ).props('dense')
-                        ui.button(
+                        button_t(
+                            'tool_clear',
                             'Alles löschen',
                             on_click=lambda: ui.run_javascript(
                                 f"window.leafManualDamage?.['{session_id}']?.clear()"
                             ),
                         ).props('dense')
-                        brush_size = ui.number(
+                        brush_size = number_t(
+                            'brush_size',
                             'Größe',
                             value=state.manual_brush_size,
                             min=2,
@@ -1813,46 +1983,50 @@ def page() -> None:
                             step=2,
                             on_change=lambda event: set_manual_brush_size(state, session_id, event.value),
                         ).classes('w-24')
-                        manual_switch.tooltip('Schaltet die manuelle Maske in Berechnung und Ergebnisanzeige ein oder aus')
-                        brush_size.tooltip('Breite von Pinsel und Radierer')
-                        ui.switch(
+                        manual_switch.tooltip(tr('manual_include_tooltip', 'Schaltet die manuelle Maske in Berechnung und Ergebnisanzeige ein oder aus'))
+                        brush_size.tooltip(tr('brush_size_tooltip', 'Breite von Pinsel und Radierer'))
+                        switch_t(
+                            'auto_edge_damage',
                             'Convex-Randschäden',
                             value=state.auto_edge_damage_enabled,
                             on_change=lambda event: set_auto_edge_damage_enabled(state, event.value),
-                        ).tooltip('Schaltet nur den Bereich zwischen Blattkontur und Convex Hull ein oder aus')
+                        ).tooltip(tr('auto_edge_damage_tooltip', 'Schaltet nur den Bereich zwischen Blattkontur und Convex Hull ein oder aus'))
 
                     with ui.row().classes('leaf-span-full items-center gap-2'):
-                        ui.switch(
+                        switch_t(
+                            'manual_limit_to_leaf',
                             'Zeichnen auf Blattmaske begrenzen',
                             value=state.manual_limit_to_leaf,
                             on_change=lambda event: set_manual_limit_to_leaf(state, event.value),
-                        ).tooltip('Zaehlt manuelle Korrekturen und Schaeden nur innerhalb der erkannten Blattflaeche')
-                        ui.number(
+                        ).tooltip(tr('manual_limit_to_leaf_tooltip', 'Zählt manuelle Korrekturen und Schäden nur innerhalb der erkannten Blattfläche'))
+                        number_t(
+                            'manual_shrink_mask',
                             'Maske schrumpfen',
                             value=state.manual_leaf_shrink_px,
                             min=0,
                             max=250,
                             step=2,
                             on_change=lambda event: set_manual_leaf_shrink_px(state, event.value),
-                        ).classes('w-36').tooltip('Schrumpft die erkannte Blattmaske vor der Begrenzung in Pixeln')
-                        ui.switch(
-                            'Auto-Schaeden auf Cropped',
+                        ).classes('w-36').tooltip(tr('manual_shrink_mask_tooltip', 'Schrumpft die erkannte Blattmaske vor der Begrenzung in Pixeln'))
+                        switch_t(
+                            'show_auto_damage_on_cropped',
+                            'Auto-Schäden auf Cropped',
                             value=state.show_auto_damage_on_cropped,
                             on_change=lambda event: set_show_auto_damage_on_cropped(state, event.value),
-                        ).tooltip('Zeigt automatisch erkannte Schaeden rot direkt auf dem Cropped-Bild')
+                        ).tooltip(tr('show_auto_damage_on_cropped_tooltip', 'Zeigt automatisch erkannte Schäden rot direkt auf dem Cropped-Bild'))
 
-                    ui.label('Cropped - hier malen').classes('leaf-preview-title')
-                    ui.label('Result').classes('leaf-preview-title')
+                    label_t('preview_cropped_draw', 'Cropped - hier malen').classes('leaf-preview-title')
+                    label_t('preview_result', 'Result').classes('leaf-preview-title')
                     ui.html(f'''
-                        <div id="cropped-draw-wrap-{session_id}" style="position:relative;width:100%;aspect-ratio:1/1;touch-action:none;overscroll-behavior:contain;-webkit-user-select:none;user-select:none;">
-                            <img id="cropped-image-{session_id}" src="/video/{session_id}/cropped" style="position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border:2px solid #f59e0b;background:#111;" draggable="false">
-                            <canvas id="manual-damage-canvas-{session_id}" style="position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none;overscroll-behavior:contain;border:2px dashed rgba(245,158,11,0.7);"></canvas>
-                            <button id="cropped-fullscreen-button-{session_id}" class="leaf-cropped-fullscreen-button" type="button">Vollbild</button>
+                        <div id="cropped-draw-wrap-{session_id}" class="leaf-cropped-draw-wrap">
+                            <img id="cropped-image-{session_id}" class="leaf-cropped-image" src="/video/{session_id}/cropped" draggable="false">
+                            <canvas id="manual-damage-canvas-{session_id}" class="leaf-manual-damage-canvas"></canvas>
+                            <button id="cropped-fullscreen-button-{session_id}" class="leaf-cropped-fullscreen-button" type="button">{tr('fullscreen_button', 'Vollbild')}</button>
                         </div>
                     ''').classes('border-none w-full')
                     result_image = ui.interactive_image(f'/video/{session_id}/result').classes('border-none w-full')
 
-                    ui.label('Damage Mask').classes('leaf-span-full leaf-preview-title')
+                    label_t('preview_damage_mask', 'Damage Mask').classes('leaf-span-full leaf-preview-title')
                     masked_image = ui.interactive_image(f'/video/{session_id}/mask').classes('border-none w-full leaf-span-full')
 
                 ui.timer(interval=0.25, callback=full_image.force_reload)
@@ -1862,16 +2036,16 @@ def page() -> None:
         with ui.column().classes('leaf-settings-panel items-stretch'):
             with ui.card().props('flat bordered'):
                 with ui.row():
-                    ui.select(langlist, label=text('select_language', 'Sprache'), on_change=load_language, value=sellang)
-                    ui.switch(text('dark_mode_switch', 'Dunkelmodus')).bind_value(dark)
+                    select_t('select_language', 'Sprache', langlist, on_change=handle_language_change, value=sellang)
+                    switch_t('dark_mode_switch', 'Dunkelmodus').bind_value(dark)
 
             with ui.card().props('flat bordered').classes('items-stretch'):
-                ui.label('Messwerte')
-                area_label = ui.label('Gruene Flaeche: -')
-                convex_label = ui.label('Convex Hull: -')
-                damage_label = ui.label('Schaden: -')
-                damage_percent_label = ui.label('Schaden: - %')
-                status_label = ui.label('Status: -')
+                label_t('measurements_title', 'Messwerte')
+                area_label = ui.label()
+                convex_label = ui.label()
+                damage_label = ui.label()
+                damage_percent_label = ui.label()
+                status_label = ui.label()
                 ui.timer(
                     interval=0.5,
                     callback=lambda: update_measurement_labels(
@@ -1885,78 +2059,72 @@ def page() -> None:
                 )
 
             with ui.card().props('flat bordered'):
-                ui.label(text('label_settings', 'Einstellungen'))
+                label_t('label_settings', 'Einstellungen')
 
                 with ui.card().props('flat bordered'):
-                    with ui.expansion(text('label_basic_settings', 'Grundeinstellungen')).classes('w-80'):
-                        mode = ui.checkbox(
-                            text('mode_checkbox', 'Modus Kamera/Bild'),
+                    with remember_text(ui.expansion(tr('label_basic_settings', 'Grundeinstellungen')), 'label_basic_settings', 'Grundeinstellungen').classes('w-80'):
+                        mode = checkbox_t(
+                            'mode_checkbox',
+                            'Modus Kamera/Bild',
                             value=app_settings.mode_camera,
                         )
-                        mode.tooltip(text('mode_checkbox_tooltip', 'Modus zwischen Kamera und Bild wechseln'))
+                        mode.tooltip(tr('mode_checkbox_tooltip', 'Modus zwischen Kamera und Bild wechseln'))
                         mode.bind_value(app_settings, 'mode_camera')
 
-                        ui.upload(
-                            label=text('image_upload', 'Bild'),
+                        upload = remember_label(ui.upload(
+                            label=tr('image_upload', 'Bild'),
                             max_files=1,
                             on_upload=handle_session_upload,
-                            on_rejected=lambda _: ui.notify(text('warn_file_upload_fail', 'Fehler beim Hochladen der Datei')),
-                        ).classes('w-70').props('flat bordered').tooltip(text('image_upload_tooltip', 'Bild von Festplatte auswaehlen'))
+                            on_rejected=lambda _: ui.notify(tr('warn_file_upload_fail', 'Fehler beim Hochladen der Datei')),
+                        ), 'image_upload', 'Bild')
+                        upload.classes('w-70').props('flat bordered').tooltip(tr('image_upload_tooltip', 'Bild von Festplatte auswählen'))
 
-                        physwidth = ui.number(
-                            text('physwidth_input', 'Physische Breite'),
+                        physwidth = number_t(
+                            'physwidth_input',
+                            'Physische Breite',
                             value=app_settings.phys_width,
                             min=0.001,
                             step=0.1,
                         )
-                        physwidth.tooltip(text('physwidth_input_tooltip', 'Physische Breite zwischen den Markern'))
+                        physwidth.tooltip(tr('physwidth_input_tooltip', 'Physische Breite zwischen den Markern'))
                         physwidth.bind_value(app_settings, 'phys_width')
 
-                        physheight = ui.number(
-                            text('physheight_input', 'Physische Hoehe'),
+                        physheight = number_t(
+                            'physheight_input',
+                            'Physische Höhe',
                             value=app_settings.phys_height,
                             min=0.001,
                             step=0.1,
                         )
-                        physheight.tooltip(text('physheight_input_tooltip', 'Physische Hoehe zwischen den Markern'))
+                        physheight.tooltip(tr('physheight_input_tooltip', 'Physische Höhe zwischen den Markern'))
                         physheight.bind_value(app_settings, 'phys_height')
 
-                        digwidth = ui.number(
-                            text('digwidth_input', 'Digitale Aufloesung'),
+                        digwidth = number_t(
+                            'digwidth_input',
+                            'Digitale Auflösung',
                             value=app_settings.dig_width,
                             min=100,
                             max=2500,
                             step=50,
                         )
-                        digwidth.tooltip(text('digwidth_input_tooltip', 'Digitale Aufloesung des Zuschnitts'))
+                        digwidth.tooltip(tr('digwidth_input_tooltip', 'Digitale Auflösung des Zuschnitts'))
                         digwidth.bind_value(app_settings, 'dig_width')
 
                 with ui.card().props('flat bordered'):
-                    with ui.expansion(text('label_filter_settings', 'Filtereinstellungen')).classes('w-80'):
-                        kernelsize = ui.number(
-                            label=text('kernelsize_input', 'Kernelgroesse'),
+                    with remember_text(ui.expansion(tr('label_filter_settings', 'Filtereinstellungen')), 'label_filter_settings', 'Filtereinstellungen').classes('w-80'):
+                        kernelsize = number_t(
+                            'kernelsize_input',
+                            'Kernelgröße',
                             value=app_settings.kernel_size,
                             min=1,
                             max=100,
                             step=1,
                         )
-                        kernelsize.tooltip(text('kernelsize_input_tooltip', 'Groesse der Matrix fuer die Rauschfilterung'))
+                        kernelsize.tooltip(tr('kernelsize_input_tooltip', 'Größe der Matrix für die Rauschfilterung'))
                         kernelsize.bind_value(app_settings, 'kernel_size')
 
-                        ui.color_input(
-                            label=text('lower_input', 'Untere Farbgrenze'),
-                            value=hsv_to_hex(app_settings.lower_hsv),
-                            on_change=lambda event: update_hsv_setting_for(state, 'lower_hsv', event.value),
-                        ).tooltip(text('lower_input_tooltip', 'Untere Farbgrenze fuer den Filter'))
-
-                        ui.color_input(
-                            label=text('upper_input', 'Obere Farbgrenze'),
-                            value=hsv_to_hex(app_settings.upper_hsv),
-                            on_change=lambda event: update_hsv_setting_for(state, 'upper_hsv', event.value),
-                        ).tooltip(text('upper_input_tooltip', 'Obere Farbgrenze fuer den Filter'))
-
-                        ui.label('HSV Live-Grenzen').classes('font-medium mt-3')
-                        ui.label('Hue / Farbton').classes('text-sm text-gray-500')
+                        label_t('hsv_live_limits', 'HSV Live-Grenzen').classes('font-medium mt-3')
+                        label_t('hsv_hue', 'Hue / Farbton').classes('text-sm text-gray-500')
                         ui.range(
                             min=0,
                             max=179,
@@ -1965,7 +2133,7 @@ def page() -> None:
                             on_change=lambda event: update_hsv_range(state, 0, event.value),
                         ).props('label-always').classes('w-full')
 
-                        ui.label('Saturation / Saettigung').classes('text-sm text-gray-500')
+                        label_t('hsv_saturation', 'Saturation / Sättigung').classes('text-sm text-gray-500')
                         ui.range(
                             min=0,
                             max=255,
@@ -1974,7 +2142,7 @@ def page() -> None:
                             on_change=lambda event: update_hsv_range(state, 1, event.value),
                         ).props('label-always').classes('w-full')
 
-                        ui.label('Value / Helligkeit').classes('text-sm text-gray-500')
+                        label_t('hsv_value', 'Value / Helligkeit').classes('text-sm text-gray-500')
                         ui.range(
                             min=0,
                             max=255,
@@ -1982,25 +2150,6 @@ def page() -> None:
                             value={'min': app_settings.lower_hsv[2], 'max': app_settings.upper_hsv[2]},
                             on_change=lambda event: update_hsv_range(state, 2, event.value),
                         ).props('label-always').classes('w-full')
-
-                with ui.card().props('flat bordered').classes('items-stretch'):
-                    with ui.expansion(text('label_debug_settings', 'Debug Einstellungen')).classes('w-80'):
-                        markers = ui.checkbox(text('marker_checkbox', 'Marker anzeigen'), value=app_settings.draw_marker)
-                        markers.tooltip(text('marker_checkbox_tooltip', 'Erkannte Marker anzeigen'))
-                        markers.bind_value(app_settings, 'draw_marker')
-
-                        bounds = ui.checkbox(text('bound_checkbox', 'Flaeche markieren'), value=app_settings.draw_bound)
-                        bounds.tooltip(text('bound_checkbox_tooltip', 'Flaeche zwischen den Markern anzeigen'))
-                        bounds.bind_value(app_settings, 'draw_bound')
-
-                        contours = ui.checkbox(text('contours_checkbox', 'Umrandung'), value=app_settings.draw_contours)
-                        contours.tooltip(text('contours_checkbox_tooltip', 'Erkannte Kanten anzeigen'))
-                        contours.bind_value(app_settings, 'draw_contours')
-
-                        convex = ui.checkbox(text('convex_checkbox', 'Convex Hull'), value=app_settings.draw_convex)
-                        convex.tooltip(text('convex_checkbox_tooltip', 'Convex Hull anzeigen'))
-                        convex.bind_value(app_settings, 'draw_convex')
-
 
 def update_measurement_labels(
     state: SessionState,
@@ -2015,13 +2164,17 @@ def update_measurement_labels(
     convex_area = last_measurement.get('convex_area')
     damage_area = last_measurement.get('damage_area')
     damage_percent = last_measurement.get('damage_percent')
-    area_label.set_text(f'Gruene Flaeche: {area:.3f} cm2' if area is not None else 'Gruene Flaeche: -')
-    convex_label.set_text(f'Convex Hull: {convex_area:.3f} cm2' if convex_area is not None else 'Convex Hull: -')
-    damage_label.set_text(f'Schaden: {damage_area:.3f} cm2' if damage_area is not None else 'Schaden: -')
+    green_label = text('metric_green_area', 'Grüne Fläche')
+    convex_text = text('metric_convex_hull', 'Convex Hull')
+    damage_text = text('metric_damage', 'Schaden')
+    status_text = text('metric_status', 'Status')
+    area_label.set_text(f'{green_label}: {area:.3f} cm2' if area is not None else f'{green_label}: -')
+    convex_label.set_text(f'{convex_text}: {convex_area:.3f} cm2' if convex_area is not None else f'{convex_text}: -')
+    damage_label.set_text(f'{damage_text}: {damage_area:.3f} cm2' if damage_area is not None else f'{damage_text}: -')
     damage_percent_label.set_text(
-        f'Schaden: {damage_percent:.1f} %' if damage_percent is not None else 'Schaden: - %'
+        f'{damage_text}: {damage_percent:.1f} %' if damage_percent is not None else f'{damage_text}: - %'
     )
-    status_label.set_text(f"Status: {last_measurement.get('status', '-')}")
+    status_label.set_text(f"{status_text}: {last_measurement.get('status', '-')}")
 
 
 def set_manual_damage_enabled(state: SessionState, session_id: str, enabled: bool) -> None:
@@ -2080,38 +2233,39 @@ async def toggle_freeze(state: SessionState, button: ui.button, full_image: ui.i
         if state.freeze_enabled:
             state.freeze_enabled = False
             state.frozen_frame = None
-            button.set_text('Freeze')
+            button.set_text(text('freeze_button', 'Freeze'))
             state.input_revision += 1
             state.processed_cache = {}
             full_image.force_reload()
-            ui.notify('Livebild aktiv')
+            ui.notify(text('notify_live_active', 'Livebild aktiv'))
             return
 
         if state.settings.mode_camera:
             if state.browser_frame is None:
-                ui.notify('Noch kein Browser-Kamerabild empfangen')
+                ui.notify(text('notify_no_camera_frame', 'Noch kein Browser-Kamerabild empfangen'))
                 return
             state.frozen_frame = state.browser_frame.copy()
             state.browser_frame_jpeg = None
         elif state.uploaded_image is not None:
             state.frozen_frame = state.uploaded_image.copy()
         else:
-            ui.notify('Kein Bild zum Einfrieren')
+            ui.notify(text('notify_no_image_to_freeze', 'Kein Bild zum Einfrieren'))
             return
 
         state.freeze_enabled = True
-        button.set_text('Live')
+        button.set_text(text('live_button', 'Live'))
         state.input_revision += 1
         state.processed_cache = {}
         full_image.force_reload()
-        ui.notify('Frame eingefroren')
+        ui.notify(text('notify_frame_frozen', 'Frame eingefroren'))
 
 
-def load_language(event: Any) -> None:
+def load_language(event: Any, reload_page: bool = True) -> None:
     global language, sellang
     sellang = event.value
     language = read_language(event.value)
-    ui.run_javascript('location.reload();')
+    if reload_page:
+        ui.run_javascript('location.reload();')
 
 
 async def handle_upload(state: SessionState, event: Any) -> None:
@@ -2127,7 +2281,7 @@ async def handle_upload(state: SessionState, event: Any) -> None:
     state.input_revision += 1
     state.processed_cache = {}
     state.settings.mode_camera = False
-    ui.notify('Bild geladen')
+    ui.notify(text('notify_image_loaded', 'Bild geladen'))
 
 
 async def disconnect() -> None:
