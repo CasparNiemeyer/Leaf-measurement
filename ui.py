@@ -48,6 +48,9 @@ class SessionState:
     manual_damage_mask: np.ndarray | None = None
     manual_correct_mask: np.ndarray | None = None
     manual_damage_enabled: bool = True
+    manual_limit_to_leaf: bool = False
+    manual_leaf_shrink_px: int = 0
+    show_auto_damage_on_cropped: bool = False
     auto_edge_damage_enabled: bool = True
     manual_damage_revision: int = 0
     manual_brush_size: int = 18
@@ -217,6 +220,9 @@ def snapshot_settings(state: SessionState | None = None) -> dict[str, Any]:
         'freeze_enabled': state.freeze_enabled,
         'input_revision': state.input_revision,
         'manual_damage_enabled': state.manual_damage_enabled,
+        'manual_limit_to_leaf': state.manual_limit_to_leaf,
+        'manual_leaf_shrink_px': state.manual_leaf_shrink_px,
+        'show_auto_damage_on_cropped': state.show_auto_damage_on_cropped,
         'auto_edge_damage_enabled': state.auto_edge_damage_enabled,
         'manual_damage_revision': state.manual_damage_revision,
     }
@@ -256,22 +262,283 @@ def order_points(points: np.ndarray) -> np.ndarray:
     return ordered
 
 
+def is_reasonable_quad(points: np.ndarray, image_shape: tuple[int, int]) -> bool:
+    if points.shape != (4, 2) or not np.isfinite(points).all():
+        return False
+
+    height, width = image_shape
+    margin_x = width * 0.08
+    margin_y = height * 0.08
+    if (
+        np.any(points[:, 0] < -margin_x)
+        or np.any(points[:, 0] > width + margin_x)
+        or np.any(points[:, 1] < -margin_y)
+        or np.any(points[:, 1] > height + margin_y)
+    ):
+        return False
+
+    polygon_area = abs(cv2.contourArea(points.astype(np.float32)))
+    frame_area = float(width * height)
+    if polygon_area < frame_area * 0.04 or polygon_area > frame_area * 0.95:
+        return False
+
+    side_lengths = [
+        float(np.linalg.norm(points[1] - points[0])),
+        float(np.linalg.norm(points[2] - points[1])),
+        float(np.linalg.norm(points[2] - points[3])),
+        float(np.linalg.norm(points[3] - points[0])),
+    ]
+    if min(side_lengths) < min(width, height) * 0.08:
+        return False
+
+    longest = max(side_lengths)
+    shortest = min(side_lengths)
+    if longest / max(1.0, shortest) > 4.0:
+        return False
+
+    opposite_ratio_a = side_lengths[0] / max(1.0, side_lengths[2])
+    opposite_ratio_b = side_lengths[1] / max(1.0, side_lengths[3])
+    if not (0.35 <= opposite_ratio_a <= 2.85 and 0.35 <= opposite_ratio_b <= 2.85):
+        return False
+
+    contour = points.astype(np.float32).reshape(-1, 1, 2)
+    if not cv2.isContourConvex(contour.astype(np.int32)):
+        return False
+
+    return True
+
+
+def aruco_parameters() -> Any:
+    parameters = (
+        cv2.aruco.DetectorParameters()
+        if hasattr(cv2.aruco, 'DetectorParameters')
+        else cv2.aruco.DetectorParameters_create()
+    )
+    parameter_updates = {
+        'adaptiveThreshWinSizeMin': 3,
+        'adaptiveThreshWinSizeMax': 53,
+        'adaptiveThreshWinSizeStep': 4,
+        'adaptiveThreshConstant': 7,
+        'minMarkerPerimeterRate': 0.015,
+        'maxMarkerPerimeterRate': 4.0,
+        'polygonalApproxAccuracyRate': 0.04,
+        'minCornerDistanceRate': 0.03,
+        'minDistanceToBorder': 2,
+        'cornerRefinementMethod': getattr(cv2.aruco, 'CORNER_REFINE_SUBPIX', 1),
+        'cornerRefinementWinSize': 5,
+        'cornerRefinementMaxIterations': 50,
+        'cornerRefinementMinAccuracy': 0.01,
+        'errorCorrectionRate': 0.8,
+    }
+    for name, value in parameter_updates.items():
+        if hasattr(parameters, name):
+            setattr(parameters, name, value)
+    return parameters
+
+
+def fallback_aruco_parameters() -> Any:
+    parameters = aruco_parameters()
+    fallback_updates = {
+        'adaptiveThreshWinSizeMax': 153,
+        'minMarkerPerimeterRate': 0.005,
+        'polygonalApproxAccuracyRate': 0.08,
+        'minCornerDistanceRate': 0.01,
+        'errorCorrectionRate': 1.0,
+    }
+    for name, value in fallback_updates.items():
+        if hasattr(parameters, name):
+            setattr(parameters, name, value)
+    return parameters
+
+
+def run_aruco_detector(
+    gray: np.ndarray,
+    aruco_dict: Any,
+    parameters: Any,
+) -> tuple[list[np.ndarray], np.ndarray | None, list[np.ndarray]]:
+    if hasattr(cv2.aruco, 'ArucoDetector'):
+        detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
+        corners, ids, rejected = detector.detectMarkers(gray)
+        return corners, ids, rejected
+
+    corners, ids, rejected = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+    return corners, ids, rejected
+
+
+def scale_corners(corners: list[np.ndarray], scale: float) -> list[np.ndarray]:
+    if scale == 1.0:
+        return corners
+    return [(np.asarray(corner, dtype=np.float32) / scale).astype(np.float32) for corner in corners]
+
+
+def fallback_marker_candidates(
+    image_shape: tuple[int, int],
+    candidates: list[np.ndarray],
+) -> tuple[list[np.ndarray], np.ndarray | None]:
+    height, width = image_shape
+    frame_area = float(width * height)
+    min_area = max(250.0, frame_area * 0.00045)
+    max_area = frame_area * 0.08
+    usable: list[dict[str, Any]] = []
+
+    for candidate in candidates:
+        points = np.asarray(candidate, dtype=np.float32).reshape(4, 2)
+        area = abs(cv2.contourArea(points))
+        if not (min_area <= area <= max_area):
+            continue
+
+        x, y, box_width, box_height = cv2.boundingRect(points.astype(np.int32))
+        if box_width < 20 or box_height < 20:
+            continue
+
+        aspect = box_width / max(1, box_height)
+        if not (0.25 <= aspect <= 4.0):
+            continue
+
+        usable.append({
+            'points': points.reshape(1, 4, 2),
+            'center': points.mean(axis=0),
+            'area': area,
+        })
+
+    diagonal = float(np.hypot(width, height))
+    clustered: list[dict[str, Any]] = []
+    for item in sorted(usable, key=lambda candidate: candidate['area'], reverse=True):
+        if any(np.linalg.norm(item['center'] - other['center']) < diagonal * 0.055 for other in clustered):
+            continue
+        clustered.append(item)
+
+    if len(clustered) < 3:
+        return [], None
+
+    targets = np.asarray([
+        [0.0, 0.0],
+        [float(width), 0.0],
+        [float(width), float(height)],
+        [0.0, float(height)],
+    ], dtype=np.float32)
+
+    slots: list[dict[str, Any] | None] = [None, None, None, None]
+    slot_scores = [float('inf')] * 4
+    for item in clustered:
+        distances = np.linalg.norm(targets - item['center'], axis=1) / max(1.0, diagonal)
+        target_index = int(np.argmin(distances))
+        score = float(distances[target_index]) - min(0.08, item['area'] / frame_area * 8.0)
+        if score < slot_scores[target_index]:
+            slots[target_index] = item
+            slot_scores[target_index] = score
+
+    missing = [index for index, item in enumerate(slots) if item is None]
+    if len(missing) > 1:
+        return [], None
+
+    if len(missing) == 1:
+        present_centers = [item['center'] for item in slots if item is not None]
+        average_size = max(12.0, np.mean([
+            np.sqrt(item['area']) for item in slots if item is not None
+        ]) * 0.35)
+        missing_index = missing[0]
+        if missing_index == 0 and slots[1] is not None and slots[2] is not None and slots[3] is not None:
+            center = slots[1]['center'] + slots[3]['center'] - slots[2]['center']
+        elif missing_index == 1 and slots[0] is not None and slots[2] is not None and slots[3] is not None:
+            center = slots[0]['center'] + slots[2]['center'] - slots[3]['center']
+        elif missing_index == 2 and slots[0] is not None and slots[1] is not None and slots[3] is not None:
+            center = slots[1]['center'] + slots[3]['center'] - slots[0]['center']
+        elif missing_index == 3 and slots[0] is not None and slots[1] is not None and slots[2] is not None:
+            center = slots[0]['center'] + slots[2]['center'] - slots[1]['center']
+        else:
+            center = np.mean(np.asarray(present_centers, dtype=np.float32), axis=0)
+
+        half = average_size / 2.0
+        points = np.asarray([[
+            [center[0] - half, center[1] - half],
+            [center[0] + half, center[1] - half],
+            [center[0] + half, center[1] + half],
+            [center[0] - half, center[1] + half],
+        ]], dtype=np.float32)
+        slots[missing_index] = {
+            'points': points,
+            'center': np.asarray(center, dtype=np.float32),
+            'area': average_size * average_size,
+        }
+
+    if any(item is None for item in slots):
+        return [], None
+
+    selected_corners = [item['points'].astype(np.float32) for item in slots if item is not None]
+    centers = np.asarray([corner.reshape(4, 2).mean(axis=0) for corner in selected_corners], dtype=np.float32)
+    if not is_reasonable_quad(order_points(centers), image_shape):
+        return [], None
+
+    synthetic_ids = np.asarray([[0], [1], [2], [3]], dtype=np.int32)
+    return selected_corners, synthetic_ids
+
+
 def detect_aruco(frame: np.ndarray) -> tuple[list[np.ndarray], np.ndarray | None, str | None]:
     if not hasattr(cv2, 'aruco'):
         return [], None, 'OpenCV ArUco Modul nicht gefunden'
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    original_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    max_detection_side = 1500
+    max_side = max(original_gray.shape[:2])
+    detection_scale = min(1.0, max_detection_side / max(1, max_side))
+    if detection_scale < 1.0:
+        base_gray = cv2.resize(
+            original_gray,
+            (round(original_gray.shape[1] * detection_scale), round(original_gray.shape[0] * detection_scale)),
+            interpolation=cv2.INTER_AREA,
+        )
+    else:
+        base_gray = original_gray
+
     aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+    parameters = aruco_parameters()
+    fallback_parameters = fallback_aruco_parameters()
 
-    if hasattr(cv2.aruco, 'ArucoDetector'):
-        parameters = cv2.aruco.DetectorParameters()
-        detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
-        corners, ids, _ = detector.detectMarkers(gray)
-        return corners, ids, None
+    variants: list[tuple[np.ndarray, float]] = [(base_gray, 1.0)]
+    equalized = cv2.equalizeHist(base_gray)
+    variants.append((equalized, 1.0))
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(base_gray)
+    variants.append((clahe, 1.0))
 
-    parameters = cv2.aruco.DetectorParameters_create()
-    corners, ids, _ = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
-    return corners, ids, None
+    if max(base_gray.shape[:2]) < 1200:
+        variants.append((cv2.resize(base_gray, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC), 1.5))
+        variants.append((cv2.resize(clahe, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC), 1.5))
+
+    best_corners: list[np.ndarray] = []
+    best_ids: np.ndarray | None = None
+    best_score = -1
+    wanted_ids = {0, 1, 2, 3}
+    fallback_candidates: list[np.ndarray] = []
+
+    for gray, scale in variants:
+        corners, ids, rejected = run_aruco_detector(gray, aruco_dict, parameters)
+        total_scale = scale * detection_scale
+        fallback_candidates.extend(scale_corners(list(corners) + list(rejected), total_scale))
+        if ids is None:
+            score = 0
+        else:
+            found_wanted = {int(marker_id) for marker_id in ids.flatten() if int(marker_id) in wanted_ids}
+            score = len(found_wanted) * 10 + len(ids)
+
+        if score > best_score:
+            best_score = score
+            best_corners = scale_corners(corners, total_scale)
+            best_ids = ids
+
+        if ids is not None and wanted_ids.issubset({int(marker_id) for marker_id in ids.flatten()}):
+            return scale_corners(corners, total_scale), ids, None
+
+    for gray, scale in variants[:1]:
+        corners, ids, rejected = run_aruco_detector(gray, aruco_dict, fallback_parameters)
+        total_scale = scale * detection_scale
+        fallback_candidates.extend(scale_corners(list(corners) + list(rejected), total_scale))
+
+    fallback_corners, fallback_ids = fallback_marker_candidates(original_gray.shape[:2], fallback_candidates)
+    if fallback_ids is not None:
+        return fallback_corners, fallback_ids, None
+
+    return best_corners, best_ids, None
 
 
 def process_frame(
@@ -343,6 +610,14 @@ def process_frame(
     centroids = np.asarray(selected_centroids, dtype=np.float32)
 
     sorted_points = order_points(centroids)
+    if not is_reasonable_quad(sorted_points, frame.shape[:2]):
+        message = 'Markerpunkte unplausibel - bitte Marker vollstaendig sichtbar halten'
+        measurement['status'] = message
+        images['full'] = display_frame
+        images['cropped'] = blank_frame(message, dig_width, dig_width)
+        images['mask'] = blank_frame(message, dig_width, dig_width)
+        images['result'] = blank_frame(message, dig_width, dig_width)
+        return {'images': images, 'measurement': measurement}
 
     if settings['draw_bound']:
         cv2.polylines(display_frame, [sorted_points.astype(np.int32)], True, (0, 255, 255), 2)
@@ -478,6 +753,9 @@ def cache_key(settings: dict[str, Any]) -> tuple[Any, ...]:
         settings['draw_convex'],
         settings['freeze_enabled'],
         settings['manual_damage_enabled'],
+        settings['manual_limit_to_leaf'],
+        settings['manual_leaf_shrink_px'],
+        settings['show_auto_damage_on_cropped'],
         settings['auto_edge_damage_enabled'],
         settings['manual_damage_revision'],
     )
@@ -755,7 +1033,7 @@ def page() -> None:
             let lastFrameSentAt = 0;
             let lastWatchdogRestartAt = 0;
             let consecutiveFrameErrors = 0;
-            const frameIntervalMs = 250;
+            const frameIntervalMs = 350;
             const sendTimeoutMs = 2500;
 
             window.leafMeasurementCamera = window.leafMeasurementCamera || {};
@@ -1053,7 +1331,7 @@ def page() -> None:
                 sending = true;
                 sendingStartedAt = Date.now();
                 try {
-                    const maxWidth = 560;
+                    const maxWidth = 960;
                     const scale = Math.min(1, maxWidth / video.videoWidth);
                     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
                     canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
