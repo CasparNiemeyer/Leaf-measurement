@@ -675,6 +675,19 @@ def process_frame(
     damage_mask = inner_damage_mask.copy()
     if settings.get('auto_edge_damage_enabled', True):
         damage_mask = cv2.bitwise_or(damage_mask, edge_damage_mask)
+    auto_damage_mask = damage_mask.copy()
+
+    cropped_preview = cropped.copy()
+    if settings.get('show_auto_damage_on_cropped'):
+        red_overlay = np.zeros_like(cropped_preview)
+        red_overlay[auto_damage_mask > 0] = (0, 0, 255)
+        cropped_preview = cv2.addWeighted(cropped_preview, 1.0, red_overlay, 0.45, 0)
+
+    manual_limit_mask = contour_mask.copy()
+    shrink_px = max(0, min(250, int(settings.get('manual_leaf_shrink_px') or 0)))
+    if shrink_px > 0:
+        shrink_kernel = np.ones((shrink_px * 2 + 1, shrink_px * 2 + 1), np.uint8)
+        manual_limit_mask = cv2.erode(manual_limit_mask, shrink_kernel, iterations=1)
 
     manual_mask_for_display = np.zeros_like(damage_mask)
     correct_mask_for_display = np.zeros_like(damage_mask)
@@ -686,6 +699,8 @@ def process_frame(
                 interpolation=cv2.INTER_NEAREST,
             )
         manual_mask_for_display = manual_damage_mask.copy()
+        if settings.get('manual_limit_to_leaf'):
+            manual_mask_for_display = cv2.bitwise_and(manual_mask_for_display, manual_limit_mask)
         damage_mask = cv2.bitwise_or(damage_mask, manual_mask_for_display)
 
     if settings.get('manual_damage_enabled') and manual_correct_mask is not None:
@@ -696,6 +711,8 @@ def process_frame(
                 interpolation=cv2.INTER_NEAREST,
             )
         correct_mask_for_display = manual_correct_mask.copy()
+        if settings.get('manual_limit_to_leaf'):
+            correct_mask_for_display = cv2.bitwise_and(correct_mask_for_display, manual_limit_mask)
         damage_mask = cv2.bitwise_and(damage_mask, cv2.bitwise_not(correct_mask_for_display))
 
     measured_green_mask = cv2.bitwise_or(green_mask, correct_mask_for_display)
@@ -731,7 +748,7 @@ def process_frame(
     })
     images.update({
         'full': display_frame,
-        'cropped': cropped,
+        'cropped': cropped_preview,
         'mask': mask_preview,
         'result': result,
     })
@@ -1013,6 +1030,46 @@ def page() -> None:
                     grid-template-columns: minmax(0, 1fr);
                 }
             }
+            body.leaf-draw-fullscreen-active {
+                overflow: hidden;
+            }
+            .leaf-cropped-fullscreen-button {
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                z-index: 4;
+                padding: 6px 10px;
+                border: 1px solid rgba(255, 255, 255, 0.7);
+                border-radius: 4px;
+                background: rgba(17, 17, 17, 0.82);
+                color: white;
+                font-size: 13px;
+                line-height: 1.2;
+            }
+            .leaf-draw-fullscreen {
+                position: fixed !important;
+                inset: 0 !important;
+                z-index: 5000;
+                width: 100vw !important;
+                height: 100dvh !important;
+                aspect-ratio: auto !important;
+                background: #111;
+                padding: 12px;
+                box-sizing: border-box;
+                touch-action: none;
+                overscroll-behavior: contain;
+            }
+            .leaf-draw-fullscreen img,
+            .leaf-draw-fullscreen canvas {
+                inset: 12px !important;
+                width: calc(100% - 24px) !important;
+                height: calc(100% - 24px) !important;
+                border-width: 0 !important;
+            }
+            .leaf-draw-fullscreen .leaf-cropped-fullscreen-button {
+                top: 18px;
+                right: 18px;
+            }
         </style>
     """)
 
@@ -1033,6 +1090,7 @@ def page() -> None:
             let lastFrameSentAt = 0;
             let lastWatchdogRestartAt = 0;
             let consecutiveFrameErrors = 0;
+            let deviceRefreshRevision = 0;
             const frameIntervalMs = 350;
             const sendTimeoutMs = 2500;
 
@@ -1101,6 +1159,7 @@ def page() -> None:
             }
 
             async function refreshDevices(unlockLabels = true) {
+                const revision = ++deviceRefreshRevision;
                 const select = document.getElementById(`camera-device-${sessionId}`);
                 const lines = [
                     `URL: ${window.location.href}`,
@@ -1113,9 +1172,12 @@ def page() -> None:
                 }
 
                 const previousValue = select.value;
-                select.innerHTML = '<option value="">Standardkamera</option>';
                 if (!navigator.mediaDevices?.enumerateDevices) {
                     lines.push('enumerateDevices: nicht verfuegbar');
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Standardkamera';
+                    select.replaceChildren(defaultOption);
                     setCameraDebug(lines);
                     return [];
                 }
@@ -1127,20 +1189,43 @@ def page() -> None:
                         devices = await navigator.mediaDevices.enumerateDevices();
                         videoDevices = devices.filter(device => device.kind === 'videoinput');
                     }
-                    lines.push(`Videogeraete: ${videoDevices.length}`);
+                    if (revision !== deviceRefreshRevision) {
+                        return [];
+                    }
+
+                    const seen = new Set();
+                    const uniqueVideoDevices = [];
                     videoDevices.forEach((device, index) => {
+                        const key = device.deviceId || device.label || `camera-${index}`;
+                        if (seen.has(key)) {
+                            return;
+                        }
+                        seen.add(key);
+                        uniqueVideoDevices.push(device);
+                    });
+
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Standardkamera';
+                    const options = [defaultOption];
+                    lines.push(`Videogeraete: ${uniqueVideoDevices.length}`);
+                    uniqueVideoDevices.forEach((device, index) => {
                         const option = document.createElement('option');
                         option.value = device.deviceId;
                         option.textContent = device.label || `Kamera ${index + 1}`;
-                        select.appendChild(option);
+                        options.push(option);
                         lines.push(`- ${option.textContent}`);
                     });
+                    select.replaceChildren(...options);
                     if ([...select.options].some(option => option.value === previousValue)) {
                         select.value = previousValue;
                     }
                     setCameraDebug(lines);
-                    return videoDevices;
+                    return uniqueVideoDevices;
                 } catch (error) {
+                    if (revision !== deviceRefreshRevision) {
+                        return [];
+                    }
                     lines.push(`Device-Scan Fehler: ${describeError(error)}`);
                     setCameraDebug(lines);
                     return [];
@@ -1409,6 +1494,8 @@ def page() -> None:
                 tool: 'damage',
                 brushSize: 18,
                 enabled: true,
+                fullscreen: false,
+                toggleFullscreen: () => {},
                 clear: async () => {
                     await fetch(clearUrl, { method: 'POST' });
                     const canvas = document.getElementById(`manual-damage-canvas-${sessionId}`);
@@ -1420,9 +1507,11 @@ def page() -> None:
             };
 
             function init() {
+                const wrap = document.getElementById(`cropped-draw-wrap-${sessionId}`);
                 const img = document.getElementById(`cropped-image-${sessionId}`);
                 const canvas = document.getElementById(`manual-damage-canvas-${sessionId}`);
-                if (!img || !canvas) {
+                const fullscreenButton = document.getElementById(`cropped-fullscreen-button-${sessionId}`);
+                if (!wrap || !img || !canvas) {
                     window.setTimeout(init, 100);
                     return;
                 }
@@ -1446,6 +1535,16 @@ def page() -> None:
                     canvas.style.width = `${rect.width}px`;
                     canvas.style.height = `${rect.height}px`;
                     ctx.drawImage(old, 0, 0, canvas.width, canvas.height);
+                }
+
+                function toggleFullscreen(force) {
+                    state.fullscreen = typeof force === 'boolean' ? force : !state.fullscreen;
+                    wrap.classList.toggle('leaf-draw-fullscreen', state.fullscreen);
+                    document.body.classList.toggle('leaf-draw-fullscreen-active', state.fullscreen);
+                    if (fullscreenButton) {
+                        fullscreenButton.textContent = state.fullscreen ? 'Schliessen' : 'Vollbild';
+                    }
+                    window.setTimeout(syncCanvasSize, 60);
                 }
 
                 function canvasPoint(event) {
@@ -1544,8 +1643,19 @@ def page() -> None:
                     canvas.addEventListener('touchcancel', finishStroke, { passive: false });
                 }
 
+                state.toggleFullscreen = toggleFullscreen;
+                fullscreenButton?.addEventListener('click', event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleFullscreen();
+                });
                 img.addEventListener('load', syncCanvasSize);
                 window.addEventListener('resize', syncCanvasSize);
+                window.addEventListener('keydown', event => {
+                    if (event.key === 'Escape' && state.fullscreen) {
+                        toggleFullscreen(false);
+                    }
+                });
                 window.setInterval(() => {
                     img.src = `${imageUrl}?t=${Date.now()}`;
                     syncCanvasSize();
@@ -1660,12 +1770,33 @@ def page() -> None:
                             on_change=lambda event: set_auto_edge_damage_enabled(state, event.value),
                         ).tooltip('Schaltet nur den Bereich zwischen Blattkontur und Convex Hull ein oder aus')
 
+                    with ui.row().classes('leaf-span-full items-center gap-2'):
+                        ui.switch(
+                            'Zeichnen auf Blattmaske begrenzen',
+                            value=state.manual_limit_to_leaf,
+                            on_change=lambda event: set_manual_limit_to_leaf(state, event.value),
+                        ).tooltip('Zaehlt manuelle Korrekturen und Schaeden nur innerhalb der erkannten Blattflaeche')
+                        ui.number(
+                            'Maske schrumpfen',
+                            value=state.manual_leaf_shrink_px,
+                            min=0,
+                            max=250,
+                            step=2,
+                            on_change=lambda event: set_manual_leaf_shrink_px(state, event.value),
+                        ).classes('w-36').tooltip('Schrumpft die erkannte Blattmaske vor der Begrenzung in Pixeln')
+                        ui.switch(
+                            'Auto-Schaeden auf Cropped',
+                            value=state.show_auto_damage_on_cropped,
+                            on_change=lambda event: set_show_auto_damage_on_cropped(state, event.value),
+                        ).tooltip('Zeigt automatisch erkannte Schaeden rot direkt auf dem Cropped-Bild')
+
                     ui.label('Cropped - hier malen').classes('leaf-preview-title')
                     ui.label('Result').classes('leaf-preview-title')
                     ui.html(f'''
                         <div id="cropped-draw-wrap-{session_id}" style="position:relative;width:100%;aspect-ratio:1/1;touch-action:none;overscroll-behavior:contain;-webkit-user-select:none;user-select:none;">
                             <img id="cropped-image-{session_id}" src="/video/{session_id}/cropped" style="position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;border:2px solid #f59e0b;background:#111;" draggable="false">
                             <canvas id="manual-damage-canvas-{session_id}" style="position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none;overscroll-behavior:contain;border:2px dashed rgba(245,158,11,0.7);"></canvas>
+                            <button id="cropped-fullscreen-button-{session_id}" class="leaf-cropped-fullscreen-button" type="button">Vollbild</button>
                         </div>
                     ''').classes('border-none w-full')
                     result_image = ui.interactive_image(f'/video/{session_id}/result').classes('border-none w-full')
@@ -1867,6 +1998,28 @@ def set_manual_brush_size(state: SessionState, session_id: str, value: Any) -> N
 
 def set_auto_edge_damage_enabled(state: SessionState, enabled: bool) -> None:
     state.auto_edge_damage_enabled = bool(enabled)
+    state.manual_damage_revision += 1
+    state.processed_cache = {}
+
+
+def set_manual_limit_to_leaf(state: SessionState, enabled: bool) -> None:
+    state.manual_limit_to_leaf = bool(enabled)
+    state.manual_damage_revision += 1
+    state.processed_cache = {}
+
+
+def set_manual_leaf_shrink_px(state: SessionState, value: Any) -> None:
+    try:
+        shrink_px = int(float(value))
+    except (TypeError, ValueError):
+        return
+    state.manual_leaf_shrink_px = max(0, min(250, shrink_px))
+    state.manual_damage_revision += 1
+    state.processed_cache = {}
+
+
+def set_show_auto_damage_on_cropped(state: SessionState, enabled: bool) -> None:
+    state.show_auto_damage_on_cropped = bool(enabled)
     state.manual_damage_revision += 1
     state.processed_cache = {}
 
