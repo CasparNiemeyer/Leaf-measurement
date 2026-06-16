@@ -22,7 +22,7 @@ python ui.py
 http://127.0.0.1:8080/
 ```
 
-Wenn die App von anderen Geräten im gleichen Netzwerk geöffnet werden soll, kann die Adresse des Rechners verwendet werden, weil der Server auf `0.0.0.0:8080` lauscht. Beispiel:
+Wenn die App von anderen Geräten im gleichen Netzwerk geöffnet werden soll, kann die Adresse des Rechners verwendet werden lauscht. Beispiel:
 
 ```text
 http://<IP-des-Rechners>:8080/
@@ -135,7 +135,7 @@ Die App nutzt HSV-Farbfilter, um Blattbereiche vom Hintergrund zu trennen.
 
 | Regler | Bedeutung |
 | --- | --- |
-| Hue / Farbton | Farbtonbereich. Für grüne Blätter typischerweise im grünen Bereich einstellen. |
+| Hue / Farbton | Farbtonbereich. Normalerweise ist eine Änderung hier nicht nötig |
 | Saturation / Sättigung | Mindest- und Höchst-Sättigung. Hilft, graue/weiße Hintergründe auszuschließen. |
 | Value / Helligkeit | Mindest- und Höchst-Helligkeit. Hilft bei Schatten und Reflexionen. |
 | Kernel size / Kernelgröße | Steuert die Rauschfilterung. Größere Werte entfernen kleine Störungen, können aber feine Blattdetails verlieren. |
@@ -164,15 +164,14 @@ Die App nutzt HSV-Farbfilter, um Blattbereiche vom Hintergrund zu trennen.
 3. Prüfen, ob `Cropped` sinnvoll aussieht.
 4. HSV-Regler einstellen, bis das Blatt sauber erkannt wird.
 5. Bei Bedarf `Show auto damage on cropped` einschalten.
-6. Mit `Damage`, `Correct` und `Remove` manuell nacharbeiten.
-7. Bei Handy-Bedienung `Fullscreen` für das Cropped-Zeichenfeld nutzen.
+6. Mit `Schaden`, `Korrekt` und `Entfernen` manuell nacharbeiten.
 8. Messwerte rechts ablesen.
 
 ## Hinweise Und Grenzen
 
-- Die Convex-Hull-Schätzung ist bei einfachen Blattformen hilfreich, aber bei stark gezackten oder komplexen Blättern nur eine Näherung.
+- Die Convex-Hull-Schätzung ist bei einfachen Blattformen hilfreich, aber bei stark gezackten oder komplexen Blättern nur eine Näherung welche natürliche Formen als Schäden markieren kann.
 - Reflexionen, Schatten und sehr helle Blätter können HSV-Filterung erschweren.
 - Manuelle Korrekturen gelten nur für die aktuelle Browser-Session.
-- Wenn die Seite neu geöffnet wird, entsteht eine neue Session mit eigener Maske.
+- Wenn die Seite neu geöffnet wird, entsteht eine neue Session mit den standard Einstellungen.
 - Werden Marker stark verdeckt oder falsch erkannt, kann die Perspektive verzerrt werden.
 

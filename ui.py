@@ -1,5 +1,7 @@
 import asyncio
 import base64
+import csv
+import itertools
 import json
 import os
 import signal
@@ -17,6 +19,38 @@ from nicegui import Client, app, core, run, ui
 
 BASE_DIR = Path(__file__).resolve().parent
 LANG_DIR = BASE_DIR / 'lang'
+ARCHIVE_DIR = BASE_DIR / 'archive'
+ARCHIVE_IMAGE_DIR = ARCHIVE_DIR / 'images'
+ARCHIVE_CSV = ARCHIVE_DIR / 'measurements.csv'
+ARCHIVE_LOCK = asyncio.Lock()
+
+ARCHIVE_CSV_FIELDS = [
+    'timestamp',
+    'session_id',
+    'status',
+    'markers',
+    'green_area_cm2',
+    'convex_hull_cm2',
+    'damage_area_cm2',
+    'damage_percent',
+    'mode',
+    'frozen',
+    'phys_width_cm',
+    'phys_height_cm',
+    'dig_width_px',
+    'kernel_size',
+    'lower_hsv',
+    'upper_hsv',
+    'manual_damage_enabled',
+    'auto_edge_damage_enabled',
+    'manual_limit_to_leaf',
+    'manual_leaf_shrink_px',
+    'show_auto_damage_on_cropped',
+    'full_image',
+    'cropped_image',
+    'result_image',
+    'mask_image',
+]
 
 # NiceGUI creates a ProcessPoolExecutor on startup for run.cpu_bound.
 # This app only uses run.io_bound, and some Windows setups block multiprocessing pipes.
@@ -30,8 +64,8 @@ class MeasurementSettings:
     phys_height: float = 13.4
     dig_width: int = 700
     kernel_size: int = 6
-    lower_hsv: tuple[int, int, int] = (0, 60, 60)
-    upper_hsv: tuple[int, int, int] = (179, 200, 200)
+    lower_hsv: tuple[int, int, int] = (0, 30, 40)
+    upper_hsv: tuple[int, int, int] = (179, 255, 255)
     draw_marker: bool = True
     draw_bound: bool = True
     draw_contours: bool = True
@@ -236,6 +270,63 @@ def convert(frame: np.ndarray) -> bytes:
     return imencode_image.tobytes() if success else b''
 
 
+def write_archive_entry(
+    session_id: str,
+    settings: dict[str, Any],
+    measurement: dict[str, Any],
+    images: dict[str, np.ndarray],
+) -> dict[str, str]:
+    ARCHIVE_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime('%Y-%m-%d_%H-%M-%S')
+    basename = f'{timestamp}_{session_id[:8]}'
+
+    image_paths: dict[str, str] = {}
+    for view in ('full', 'cropped', 'result', 'mask'):
+        frame = images.get(view)
+        if frame is None:
+            continue
+        path = ARCHIVE_IMAGE_DIR / f'{basename}_{view}.jpg'
+        cv2.imwrite(str(path), frame)
+        image_paths[f'{view}_image'] = str(path.relative_to(BASE_DIR))
+
+    row = {
+        'timestamp': timestamp,
+        'session_id': session_id,
+        'status': measurement.get('status', ''),
+        'markers': measurement.get('markers', ''),
+        'green_area_cm2': measurement.get('area', ''),
+        'convex_hull_cm2': measurement.get('convex_area', ''),
+        'damage_area_cm2': measurement.get('damage_area', ''),
+        'damage_percent': measurement.get('damage_percent', ''),
+        'mode': 'camera' if settings.get('mode_camera') else 'image',
+        'frozen': settings.get('freeze_enabled', False),
+        'phys_width_cm': settings.get('phys_width', ''),
+        'phys_height_cm': settings.get('phys_height', ''),
+        'dig_width_px': settings.get('dig_width', ''),
+        'kernel_size': settings.get('kernel_size', ''),
+        'lower_hsv': ';'.join(map(str, settings.get('lower_hsv', ()))),
+        'upper_hsv': ';'.join(map(str, settings.get('upper_hsv', ()))),
+        'manual_damage_enabled': settings.get('manual_damage_enabled', ''),
+        'auto_edge_damage_enabled': settings.get('auto_edge_damage_enabled', ''),
+        'manual_limit_to_leaf': settings.get('manual_limit_to_leaf', ''),
+        'manual_leaf_shrink_px': settings.get('manual_leaf_shrink_px', ''),
+        'show_auto_damage_on_cropped': settings.get('show_auto_damage_on_cropped', ''),
+        'full_image': image_paths.get('full_image', ''),
+        'cropped_image': image_paths.get('cropped_image', ''),
+        'result_image': image_paths.get('result_image', ''),
+        'mask_image': image_paths.get('mask_image', ''),
+    }
+
+    csv_exists = ARCHIVE_CSV.exists()
+    with open(ARCHIVE_CSV, 'a', newline='', encoding='utf-8') as file:
+        writer = csv.DictWriter(file, fieldnames=ARCHIVE_CSV_FIELDS)
+        if not csv_exists:
+            writer.writeheader()
+        writer.writerow(row)
+
+    return image_paths
+
+
 def blank_frame(message: str, width: int = 700, height: int | None = None) -> np.ndarray:
     width = max(320, int(width or 700))
     height = max(180, int(height or width))
@@ -372,6 +463,155 @@ def scale_corners(corners: list[np.ndarray], scale: float) -> list[np.ndarray]:
     return [(np.asarray(corner, dtype=np.float32) / scale).astype(np.float32) for corner in corners]
 
 
+def marker_area(corner: np.ndarray) -> float:
+    points = np.asarray(corner, dtype=np.float32).reshape(4, 2)
+    return abs(cv2.contourArea(points))
+
+
+def marker_center(corner: np.ndarray) -> np.ndarray:
+    return np.asarray(corner, dtype=np.float32).reshape(4, 2).mean(axis=0)
+
+
+def marker_shape_is_plausible(corner: np.ndarray, image_shape: tuple[int, int]) -> bool:
+    points = np.asarray(corner, dtype=np.float32).reshape(4, 2)
+    height, width = image_shape
+    frame_area = float(width * height)
+    area = marker_area(points)
+    if area < max(80.0, frame_area * 0.00008) or area > frame_area * 0.08:
+        return False
+
+    x, y, box_width, box_height = cv2.boundingRect(points.astype(np.int32))
+    if box_width < 8 or box_height < 8:
+        return False
+
+    aspect = box_width / max(1, box_height)
+    if not (0.35 <= aspect <= 2.85):
+        return False
+
+    side_lengths = [
+        float(np.linalg.norm(points[1] - points[0])),
+        float(np.linalg.norm(points[2] - points[1])),
+        float(np.linalg.norm(points[3] - points[2])),
+        float(np.linalg.norm(points[0] - points[3])),
+    ]
+    if min(side_lengths) < 6:
+        return False
+    if max(side_lengths) / max(1.0, min(side_lengths)) > 3.2:
+        return False
+
+    margin_x = width * 0.015
+    margin_y = height * 0.015
+    if (
+        np.any(points[:, 0] < -margin_x)
+        or np.any(points[:, 0] > width + margin_x)
+        or np.any(points[:, 1] < -margin_y)
+        or np.any(points[:, 1] > height + margin_y)
+    ):
+        return False
+
+    return True
+
+
+def select_wanted_markers(
+    corners: list[np.ndarray],
+    ids: np.ndarray | None,
+    image_shape: tuple[int, int],
+) -> tuple[list[np.ndarray], np.ndarray | None]:
+    if ids is None:
+        return [], None
+
+    wanted_ids = {0, 1, 2, 3}
+    by_id: dict[int, list[np.ndarray]] = {marker_id: [] for marker_id in wanted_ids}
+    for marker_id, corner in zip(ids.flatten(), corners):
+        marker_id_int = int(marker_id)
+        if marker_id_int not in wanted_ids:
+            continue
+        if marker_shape_is_plausible(corner, image_shape):
+            by_id[marker_id_int].append(np.asarray(corner, dtype=np.float32))
+
+    if any(not by_id[marker_id] for marker_id in wanted_ids):
+        return [], None
+
+    selected: list[np.ndarray] = []
+    for marker_id in sorted(wanted_ids):
+        options = by_id[marker_id]
+        selected.append(max(options, key=marker_area))
+
+    areas = np.asarray([marker_area(corner) for corner in selected], dtype=np.float32)
+    median_area = float(np.median(areas))
+    if median_area <= 0:
+        return [], None
+    if float(np.max(areas) / max(1.0, np.min(areas))) > 6.5:
+        return [], None
+
+    centers = np.asarray([marker_center(corner) for corner in selected], dtype=np.float32)
+    ordered_centers = order_points(centers)
+    if not is_reasonable_quad(ordered_centers, image_shape):
+        return [], None
+
+    center = ordered_centers.mean(axis=0)
+    distances = np.linalg.norm(ordered_centers - center, axis=1)
+    if float(np.max(distances) / max(1.0, np.median(distances))) > 2.25:
+        return [], None
+
+    ordered_corners: list[np.ndarray] = []
+    for ordered_center in ordered_centers:
+        index = int(np.argmin(np.linalg.norm(centers - ordered_center, axis=1)))
+        ordered_corners.append(selected[index].astype(np.float32))
+
+    synthetic_ids = np.asarray([[0], [1], [2], [3]], dtype=np.int32)
+    return ordered_corners, synthetic_ids
+
+
+def synthesize_missing_marker_from_decoded(
+    corners: list[np.ndarray],
+    ids: np.ndarray | None,
+    image_shape: tuple[int, int],
+) -> tuple[list[np.ndarray], np.ndarray | None]:
+    if ids is None:
+        return [], None
+
+    wanted_ids = {0, 1, 2, 3}
+    by_id: dict[int, np.ndarray] = {}
+    for marker_id, corner in zip(ids.flatten(), corners):
+        marker_id_int = int(marker_id)
+        if marker_id_int not in wanted_ids or not marker_shape_is_plausible(corner, image_shape):
+            continue
+        current = by_id.get(marker_id_int)
+        if current is None or marker_area(corner) > marker_area(current):
+            by_id[marker_id_int] = np.asarray(corner, dtype=np.float32)
+
+    if len(by_id) != 3:
+        return [], None
+
+    missing_index = next(marker_id for marker_id in sorted(wanted_ids) if marker_id not in by_id)
+    centers_by_id = {marker_id: marker_center(corner) for marker_id, corner in by_id.items()}
+    if missing_index == 0:
+        center = centers_by_id[1] + centers_by_id[3] - centers_by_id[2]
+    elif missing_index == 1:
+        center = centers_by_id[0] + centers_by_id[2] - centers_by_id[3]
+    elif missing_index == 2:
+        center = centers_by_id[1] + centers_by_id[3] - centers_by_id[0]
+    else:
+        center = centers_by_id[0] + centers_by_id[2] - centers_by_id[1]
+
+    sizes = [np.sqrt(marker_area(corner)) for corner in by_id.values()]
+    half = max(6.0, float(np.median(sizes)) * 0.35)
+    synthetic = np.asarray([[
+        [center[0] - half, center[1] - half],
+        [center[0] + half, center[1] - half],
+        [center[0] + half, center[1] + half],
+        [center[0] - half, center[1] + half],
+    ]], dtype=np.float32)
+
+    completed = [by_id.get(marker_id, synthetic).astype(np.float32) for marker_id in sorted(wanted_ids)]
+    centers = np.asarray([marker_center(corner) for corner in completed], dtype=np.float32)
+    if not is_reasonable_quad(order_points(centers), image_shape):
+        return [], None
+
+    return completed, np.asarray([[0], [1], [2], [3]], dtype=np.int32)
+
+
 def fallback_marker_candidates(
     image_shape: tuple[int, int],
     candidates: list[np.ndarray],
@@ -411,6 +651,58 @@ def fallback_marker_candidates(
 
     if len(clustered) < 3:
         return [], None
+
+    if len(clustered) >= 4:
+        best_group: tuple[float, tuple[dict[str, Any], ...]] | None = None
+        search_pool = sorted(clustered, key=lambda candidate: candidate['area'], reverse=True)[:24]
+        for group in itertools.combinations(search_pool, 4):
+            centers = np.asarray([item['center'] for item in group], dtype=np.float32)
+            ordered_centers = order_points(centers)
+            if not is_reasonable_quad(ordered_centers, image_shape):
+                continue
+
+            areas = np.asarray([item['area'] for item in group], dtype=np.float32)
+            area_ratio = float(np.max(areas) / max(1.0, np.min(areas)))
+            if area_ratio > 8.0:
+                continue
+
+            side_lengths = [
+                float(np.linalg.norm(ordered_centers[1] - ordered_centers[0])),
+                float(np.linalg.norm(ordered_centers[2] - ordered_centers[1])),
+                float(np.linalg.norm(ordered_centers[2] - ordered_centers[3])),
+                float(np.linalg.norm(ordered_centers[3] - ordered_centers[0])),
+            ]
+            side_ratio = max(side_lengths) / max(1.0, min(side_lengths))
+            opposite_ratio_a = side_lengths[0] / max(1.0, side_lengths[2])
+            opposite_ratio_b = side_lengths[1] / max(1.0, side_lengths[3])
+            polygon_area = abs(cv2.contourArea(ordered_centers))
+            score = (
+                np.log(area_ratio)
+                + abs(np.log(max(0.001, opposite_ratio_a)))
+                + abs(np.log(max(0.001, opposite_ratio_b)))
+                + max(0.0, side_ratio - 2.0) * 0.25
+                - (polygon_area / max(1.0, frame_area)) * 0.15
+            )
+            if best_group is None or score < best_group[0]:
+                best_group = (float(score), group)
+
+        if best_group is not None:
+            group = best_group[1]
+            centers = np.asarray([item['center'] for item in group], dtype=np.float32)
+            ordered_centers = order_points(centers)
+            ordered_items: list[dict[str, Any]] = []
+            used: set[int] = set()
+            for ordered_center in ordered_centers:
+                distances = np.linalg.norm(centers - ordered_center, axis=1)
+                for index in np.argsort(distances):
+                    index_int = int(index)
+                    if index_int not in used:
+                        used.add(index_int)
+                        ordered_items.append(group[index_int])
+                        break
+
+            synthetic_ids = np.asarray([[0], [1], [2], [3]], dtype=np.int32)
+            return [item['points'].astype(np.float32) for item in ordered_items], synthetic_ids
 
     targets = np.asarray([
         [0.0, 0.0],
@@ -510,36 +802,53 @@ def detect_aruco(frame: np.ndarray) -> tuple[list[np.ndarray], np.ndarray | None
     best_ids: np.ndarray | None = None
     best_score = -1
     wanted_ids = {0, 1, 2, 3}
+    decoded_candidates: list[tuple[list[np.ndarray], np.ndarray]] = []
     fallback_candidates: list[np.ndarray] = []
 
     for gray, scale in variants:
         corners, ids, rejected = run_aruco_detector(gray, aruco_dict, parameters)
         total_scale = scale * detection_scale
+        scaled_corners = scale_corners(corners, total_scale)
         fallback_candidates.extend(scale_corners(list(corners) + list(rejected), total_scale))
         if ids is None:
             score = 0
         else:
             found_wanted = {int(marker_id) for marker_id in ids.flatten() if int(marker_id) in wanted_ids}
             score = len(found_wanted) * 10 + len(ids)
+            decoded_candidates.append((scaled_corners, ids))
 
         if score > best_score:
             best_score = score
-            best_corners = scale_corners(corners, total_scale)
+            best_corners = scaled_corners
             best_ids = ids
 
         if ids is not None and wanted_ids.issubset({int(marker_id) for marker_id in ids.flatten()}):
-            return scale_corners(corners, total_scale), ids, None
+            selected_corners, selected_ids = select_wanted_markers(scaled_corners, ids, original_gray.shape[:2])
+            if selected_ids is not None:
+                return selected_corners, selected_ids, None
 
     for gray, scale in variants[:1]:
         corners, ids, rejected = run_aruco_detector(gray, aruco_dict, fallback_parameters)
         total_scale = scale * detection_scale
         fallback_candidates.extend(scale_corners(list(corners) + list(rejected), total_scale))
+        if ids is not None:
+            decoded_candidates.append((scale_corners(corners, total_scale), ids))
+
+    for corners, ids in decoded_candidates:
+        selected_corners, selected_ids = select_wanted_markers(corners, ids, original_gray.shape[:2])
+        if selected_ids is not None:
+            return selected_corners, selected_ids, None
+
+    for corners, ids in decoded_candidates:
+        fallback_corners, fallback_ids = synthesize_missing_marker_from_decoded(corners, ids, original_gray.shape[:2])
+        if fallback_ids is not None:
+            return fallback_corners, fallback_ids, None
 
     fallback_corners, fallback_ids = fallback_marker_candidates(original_gray.shape[:2], fallback_candidates)
     if fallback_ids is not None:
         return fallback_corners, fallback_ids, None
 
-    return best_corners, best_ids, None
+    return [], None, None
 
 
 def process_frame(
@@ -749,9 +1058,9 @@ def process_frame(
     result[exclude_mask_for_display > 0] = (255, 0, 255)
 
     if settings['draw_convex']:
-        cv2.drawContours(result, [hull], -1, (255, 0, 0), 5)
+        cv2.drawContours(result, [hull], -1, (255, 0, 0), 2)
     if settings['draw_contours']:
-        cv2.drawContours(result, [contour], -1, (0, 255, 0), 5)
+        cv2.drawContours(result, [contour], -1, (0, 255, 0), 2)
 
     cv2.putText(result, f'Green area: {area:.3f} cm2', (40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     cv2.putText(result, f'Area convex hull: {convex_area:.3f} cm2', (40, 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
@@ -896,6 +1205,19 @@ async def grab_video_frame(session_id: str, view: str) -> Response:
     if not jpeg:
         return placeholder
     return Response(content=jpeg, media_type='image/jpeg')
+
+
+@app.get('/archive/measurements.csv')
+async def download_archive_csv() -> Response:
+    if not ARCHIVE_CSV.exists():
+        content = ','.join(ARCHIVE_CSV_FIELDS) + '\n'
+    else:
+        content = ARCHIVE_CSV.read_text(encoding='utf-8')
+    return Response(
+        content=content,
+        media_type='text/csv; charset=utf-8',
+        headers={'Content-Disposition': 'attachment; filename="leaf_measurements.csv"'},
+    )
 
 
 @app.post('/camera/frame/{session_id}')
@@ -1049,6 +1371,20 @@ def page() -> None:
     def button_t(key: str, fallback: str, **kwargs: Any) -> Any:
         return remember_text(ui.button(tr(key, fallback), **kwargs), key, fallback)
 
+    def icon_button_t(icon: str, key: str, fallback: str, **kwargs: Any) -> Any:
+        button = ui.button(icon=icon, **kwargs).props('dense round flat')
+        button.classes('leaf-tool-material-button')
+        button.tooltip(tr(key, fallback))
+        return button
+
+    def svg_tool_button_t(svg: str, key: str, fallback: str, js: str) -> Any:
+        title = tr(key, fallback).replace('&', '&amp;').replace('"', '&quot;')
+        onclick = js.replace('&', '&amp;').replace('"', '&quot;')
+        return ui.html(
+            f'<button class="leaf-tool-icon-button" type="button" title="{title}" '
+            f'onclick="{onclick}">{svg}</button>'
+        )
+
     def switch_t(key: str, fallback: str, **kwargs: Any) -> Any:
         return remember_text(ui.switch(tr(key, fallback), **kwargs), key, fallback)
 
@@ -1116,8 +1452,33 @@ def page() -> None:
             'Videogeraete': tr('camera_video_devices', 'Videogeräte'),
         }, ensure_ascii=False)
 
+    ui.colors(primary='#16a34a')
+
     ui.add_head_html("""
         <style>
+            :root {
+                --leaf-accent: #16a34a;
+                --leaf-accent-soft: rgba(22, 163, 74, 0.14);
+                --leaf-accent-hover: rgba(22, 163, 74, 0.2);
+            }
+            .body--dark {
+                --leaf-accent: #4ade80;
+                --leaf-accent-soft: rgba(74, 222, 128, 0.16);
+                --leaf-accent-hover: rgba(74, 222, 128, 0.23);
+            }
+            .q-btn.text-primary,
+            .q-icon.text-primary {
+                color: var(--leaf-accent) !important;
+            }
+            .q-btn.bg-primary {
+                background: var(--leaf-accent) !important;
+            }
+            .q-toggle__inner--truthy,
+            .q-slider__track,
+            .q-slider__selection,
+            .q-slider__thumb {
+                color: var(--leaf-accent) !important;
+            }
             .leaf-shell {
                 width: min(100%, 1540px);
                 margin: 0 auto;
@@ -1143,6 +1504,32 @@ def page() -> None:
             .leaf-preview-title {
                 font-weight: 600;
                 margin-top: 4px;
+            }
+            .leaf-tool-icon-button {
+                width: 34px;
+                height: 34px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border: 0;
+                border-radius: 999px;
+                background: transparent;
+                color: var(--leaf-accent);
+                cursor: pointer;
+            }
+            .leaf-tool-icon-button:hover {
+                background: var(--leaf-accent-hover);
+            }
+            .leaf-tool-icon-button svg {
+                width: 24px;
+                height: 24px;
+                display: block;
+            }
+            .leaf-tool-material-button {
+                color: var(--leaf-accent) !important;
+            }
+            .leaf-tool-material-button:hover {
+                background: var(--leaf-accent-hover) !important;
             }
             .leaf-cropped-draw-wrap {
                 position: relative;
@@ -1239,6 +1626,33 @@ def page() -> None:
             }
         </style>
     """)
+    ui.add_body_html("""
+        <script>
+        (() => {
+            const cookieMatch = document.cookie.match(/(?:^|; )leafMeasurementDarkMode=(true|false)/);
+            const stored = localStorage.getItem('leafMeasurementDarkMode') ?? cookieMatch?.[1] ?? null;
+            if (stored !== null) {
+                const enabled = stored === 'true';
+                document.documentElement.classList.toggle('dark', enabled);
+                document.body.classList.toggle('body--dark', enabled);
+                const apply = () => {
+                    if (window.Quasar?.Dark) {
+                        window.Quasar.Dark.set(enabled);
+                    }
+                };
+                apply();
+                window.setTimeout(apply, 250);
+            }
+            window.leafMeasurementSetDarkMode = enabled => {
+                localStorage.setItem('leafMeasurementDarkMode', enabled ? 'true' : 'false');
+                document.cookie = `leafMeasurementDarkMode=${enabled ? 'true' : 'false'}; max-age=31536000; path=/; SameSite=Lax`;
+                if (window.Quasar?.Dark) {
+                    window.Quasar.Dark.set(enabled);
+                }
+            };
+        })();
+        </script>
+    """)
 
     camera_script = """
         <video id="browser-camera-video-__SESSION_ID__" autoplay playsinline muted style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px;top:-9999px"></video>
@@ -1259,6 +1673,7 @@ def page() -> None:
             let lastWatchdogRestartAt = 0;
             let consecutiveFrameErrors = 0;
             let deviceRefreshRevision = 0;
+            let initialDeviceRefreshStarted = false;
             let lastCameraStatus = 'bereit';
             let lastCameraError = '';
             const frameIntervalMs = 350;
@@ -1269,6 +1684,8 @@ def page() -> None:
                 start: startCamera,
                 stop: stopCamera,
                 refreshDevices,
+                freezeStream: freezeCameraStream,
+                resumeAfterFreeze: resumeCameraAfterFreeze,
                 updateTexts: texts => {
                     cameraTexts = { ...cameraTexts, ...texts };
                     renderCameraStatus();
@@ -1315,6 +1732,19 @@ def page() -> None:
                 video.pause();
                 video.srcObject = null;
                 sending = false;
+            }
+
+            function freezeCameraStream() {
+                started = false;
+                stopCurrentStream();
+                setCameraStatus('gestoppt');
+            }
+
+            async function resumeCameraAfterFreeze() {
+                if (started || startingPromise) {
+                    return startingPromise;
+                }
+                return startCamera();
             }
 
             function stopCamera() {
@@ -1421,8 +1851,12 @@ def page() -> None:
             }
 
             function refreshDevicesWhenUiIsReady(attempt = 0) {
+                if (initialDeviceRefreshStarted) {
+                    return;
+                }
                 const select = document.getElementById(`camera-device-${sessionId}`);
                 if (select) {
+                    initialDeviceRefreshStarted = true;
                     refreshDevices(true);
                     return;
                 }
@@ -1528,7 +1962,6 @@ def page() -> None:
                         lastFrameSentAt = Date.now();
                         consecutiveFrameErrors = 0;
                         setCameraStatus('aktiv');
-                        await refreshDevices(false);
                     } catch (error) {
                         started = false;
                         stopCurrentStream();
@@ -1648,7 +2081,9 @@ def page() -> None:
 
             setCameraStatus('bereit');
             refreshDevicesWhenUiIsReady();
-            window.addEventListener('load', () => refreshDevicesWhenUiIsReady());
+            if (document.readyState === 'loading') {
+                window.addEventListener('load', () => refreshDevicesWhenUiIsReady(), { once: true });
+            }
             window.addEventListener('beforeunload', stopCamera);
             document.addEventListener('visibilitychange', () => {
                 if (document.hidden) {
@@ -1900,7 +2335,6 @@ def page() -> None:
                                     f"window.leafMeasurementCamera?.['{session_id}']?.stop()"
                                 ),
                             ).props('dense')
-                            freeze_button = button_t('freeze_button', 'Freeze').props('dense')
                     with ui.row().classes('leaf-span-full items-center gap-2'):
                         ui.html(
                             f'<select id="camera-device-{session_id}" '
@@ -1914,18 +2348,7 @@ def page() -> None:
                                 f"window.leafMeasurementCamera?.['{session_id}']?.refreshDevices(true)"
                             ),
                         ).props('dense')
-                    ui.html(
-                        f'<pre id="camera-debug-{session_id}" '
-                        'style="grid-column:1/-1;white-space:pre-wrap;font-size:11px;line-height:1.25;'
-                        'margin:0;padding:6px 8px;border:1px solid #ddd;border-radius:4px;'
-                        'max-height:96px;overflow:auto;background:rgba(127,127,127,0.08);"></pre>'
-                    ).classes('leaf-span-full')
                     full_image = ui.interactive_image(f'/video/{session_id}/full').classes('border-none w-full leaf-span-full')
-
-                    async def handle_freeze_click() -> None:
-                        await toggle_freeze(state, freeze_button, full_image)
-
-                    freeze_button.on('click', handle_freeze_click)
 
                     with ui.row().classes('leaf-span-full items-center gap-2'):
                         label_t('manual_draw_title', 'Manuell auf Cropped zeichnen').classes('font-bold')
@@ -1935,45 +2358,54 @@ def page() -> None:
                             value=state.manual_damage_enabled,
                             on_change=lambda event: set_manual_damage_enabled(state, session_id, event.value),
                         )
-                        button_t(
+                        svg_tool_button_t(
+                            '<svg viewBox="0 0 24 24" aria-hidden="true">'
+                            '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+                            '<path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+                            '<circle cx="14.5" cy="10.5" r="2" fill="var(--q-page, #fff)" stroke="currentColor" stroke-width="1.8"/>'
+                            '</svg>',
                             'tool_damage',
                             'Schaden',
-                            on_click=lambda: ui.run_javascript(
-                                f"window.leafManualDamage?.['{session_id}'] && "
-                                f"(window.leafManualDamage['{session_id}'].tool = 'damage')"
-                            ),
-                        ).props('dense')
-                        button_t(
+                            f"window.leafManualDamage?.['{session_id}'] && "
+                            f"(window.leafManualDamage['{session_id}'].tool = 'damage')",
+                        )
+                        svg_tool_button_t(
+                            '<svg viewBox="0 0 24 24" aria-hidden="true">'
+                            '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+                            '<path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+                            '</svg>',
                             'tool_correct',
                             'Korrekt',
-                            on_click=lambda: ui.run_javascript(
-                                f"window.leafManualDamage?.['{session_id}'] && "
-                                f"(window.leafManualDamage['{session_id}'].tool = 'correct')"
-                            ),
-                        ).props('dense')
-                        button_t(
+                            f"window.leafManualDamage?.['{session_id}'] && "
+                            f"(window.leafManualDamage['{session_id}'].tool = 'correct')",
+                        )
+                        icon_button_t(
+                            'block',
                             'tool_exclude',
                             'Entfernen',
                             on_click=lambda: ui.run_javascript(
                                 f"window.leafManualDamage?.['{session_id}'] && "
                                 f"(window.leafManualDamage['{session_id}'].tool = 'exclude')"
                             ),
-                        ).props('dense')
-                        button_t(
+                        )
+                        svg_tool_button_t(
+                            '<svg viewBox="0 0 24 24" aria-hidden="true">'
+                            '<path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+                            '<path d="m5.082 11.09 8.828 8.828" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+                            '</svg>',
                             'tool_eraser',
                             'Radierer',
-                            on_click=lambda: ui.run_javascript(
-                                f"window.leafManualDamage?.['{session_id}'] && "
-                                f"(window.leafManualDamage['{session_id}'].tool = 'eraser')"
-                            ),
-                        ).props('dense')
-                        button_t(
+                            f"window.leafManualDamage?.['{session_id}'] && "
+                            f"(window.leafManualDamage['{session_id}'].tool = 'eraser')",
+                        )
+                        icon_button_t(
+                            'delete_sweep',
                             'tool_clear',
                             'Alles löschen',
                             on_click=lambda: ui.run_javascript(
                                 f"window.leafManualDamage?.['{session_id}']?.clear()"
                             ),
-                        ).props('dense')
+                        )
                         brush_size = number_t(
                             'brush_size',
                             'Größe',
@@ -2026,6 +2458,14 @@ def page() -> None:
                     ''').classes('border-none w-full')
                     result_image = ui.interactive_image(f'/video/{session_id}/result').classes('border-none w-full')
 
+                    with ui.row().classes('items-center gap-2'):
+                        freeze_button = button_t('freeze_button', 'Freeze').props('dense')
+
+                    async def handle_freeze_click() -> None:
+                        await toggle_freeze(session_id, state, freeze_button, full_image)
+
+                    freeze_button.on('click', handle_freeze_click)
+
                     label_t('preview_damage_mask', 'Damage Mask').classes('leaf-span-full leaf-preview-title')
                     masked_image = ui.interactive_image(f'/video/{session_id}/mask').classes('border-none w-full leaf-span-full')
 
@@ -2034,11 +2474,6 @@ def page() -> None:
                     ui.timer(interval=0.8, callback=image.force_reload)
 
         with ui.column().classes('leaf-settings-panel items-stretch'):
-            with ui.card().props('flat bordered'):
-                with ui.row():
-                    select_t('select_language', 'Sprache', langlist, on_change=handle_language_change, value=sellang)
-                    switch_t('dark_mode_switch', 'Dunkelmodus').bind_value(dark)
-
             with ui.card().props('flat bordered').classes('items-stretch'):
                 label_t('measurements_title', 'Messwerte')
                 area_label = ui.label()
@@ -2046,6 +2481,11 @@ def page() -> None:
                 damage_label = ui.label()
                 damage_percent_label = ui.label()
                 status_label = ui.label()
+                archive_status_label = ui.label('').classes('text-xs text-gray-500')
+
+                async def handle_archive_click() -> None:
+                    await archive_current_measurement(session_id, state, archive_status_label)
+
                 ui.timer(
                     interval=0.5,
                     callback=lambda: update_measurement_labels(
@@ -2057,9 +2497,32 @@ def page() -> None:
                         status_label,
                     ),
                 )
+                with ui.row().classes('items-center gap-2'):
+                    button_t(
+                        'archive_button',
+                        'Archivieren',
+                        on_click=handle_archive_click,
+                    ).props('dense')
+                    button_t(
+                        'download_csv_button',
+                        'CSV herunterladen',
+                        on_click=lambda: ui.run_javascript(
+                            "window.open('/archive/measurements.csv?t=' + Date.now(), '_blank')"
+                        ),
+                    ).props('dense')
 
             with ui.card().props('flat bordered'):
                 label_t('label_settings', 'Einstellungen')
+                with ui.row().classes('items-center gap-2'):
+                    select_t('select_language', 'Sprache', langlist, on_change=handle_language_change, value=sellang).classes('min-w-36')
+                    dark_switch = switch_t(
+                        'dark_mode_switch',
+                        'Dunkelmodus',
+                        on_change=lambda event: ui.run_javascript(
+                            f"window.leafMeasurementSetDarkMode?.({str(bool(event.value)).lower()})"
+                        ),
+                    )
+                    dark_switch.bind_value(dark)
 
                 with ui.card().props('flat bordered'):
                     with remember_text(ui.expansion(tr('label_basic_settings', 'Grundeinstellungen')), 'label_basic_settings', 'Grundeinstellungen').classes('w-80'):
@@ -2177,6 +2640,33 @@ def update_measurement_labels(
     status_label.set_text(f"{status_text}: {last_measurement.get('status', '-')}")
 
 
+async def archive_current_measurement(session_id: str, state: SessionState, status_label: ui.label | None = None) -> None:
+    processed = await get_processed_result(session_id)
+    if processed is None:
+        message = text('archive_no_image', 'Kein Bild zum Archivieren vorhanden')
+        if status_label is not None:
+            status_label.set_text(message)
+        ui.notify(message)
+        return
+
+    measurement = processed.get('measurement', {})
+    settings = snapshot_settings(state)
+    async with ARCHIVE_LOCK:
+        image_paths = await run.io_bound(
+            write_archive_entry,
+            session_id,
+            settings,
+            measurement,
+            processed.get('images', {}),
+        )
+
+    count = len(image_paths)
+    message = text('archive_saved', 'Archiviert') + f': {count} ' + text('archive_images', 'Bilder')
+    if status_label is not None:
+        status_label.set_text(message)
+    ui.notify(message)
+
+
 def set_manual_damage_enabled(state: SessionState, session_id: str, enabled: bool) -> None:
     state.manual_damage_enabled = bool(enabled)
     state.manual_damage_revision += 1
@@ -2228,7 +2718,12 @@ def set_show_auto_damage_on_cropped(state: SessionState, enabled: bool) -> None:
     state.processed_cache = {}
 
 
-async def toggle_freeze(state: SessionState, button: ui.button, full_image: ui.interactive_image) -> None:
+async def toggle_freeze(
+    session_id: str,
+    state: SessionState,
+    button: ui.button,
+    full_image: ui.interactive_image,
+) -> None:
     async with get_processing_lock(state):
         if state.freeze_enabled:
             state.freeze_enabled = False
@@ -2237,6 +2732,10 @@ async def toggle_freeze(state: SessionState, button: ui.button, full_image: ui.i
             state.input_revision += 1
             state.processed_cache = {}
             full_image.force_reload()
+            if state.settings.mode_camera:
+                ui.run_javascript(
+                    f"window.leafMeasurementCamera?.['{session_id}']?.resumeAfterFreeze?.()"
+                )
             ui.notify(text('notify_live_active', 'Livebild aktiv'))
             return
 
@@ -2257,6 +2756,10 @@ async def toggle_freeze(state: SessionState, button: ui.button, full_image: ui.i
         state.input_revision += 1
         state.processed_cache = {}
         full_image.force_reload()
+        if state.settings.mode_camera:
+            ui.run_javascript(
+                f"window.leafMeasurementCamera?.['{session_id}']?.freezeStream?.()"
+            )
         ui.notify(text('notify_frame_frozen', 'Frame eingefroren'))
 
 

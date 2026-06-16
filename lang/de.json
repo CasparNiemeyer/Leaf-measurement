@@ -64,6 +64,11 @@
     "metric_convex_hull": "Convex Hull",
     "metric_damage": "Schaden",
     "metric_status": "Status",
+    "archive_button": "Archivieren",
+    "download_csv_button": "CSV herunterladen",
+    "archive_saved": "Archiviert",
+    "archive_images": "Bilder",
+    "archive_no_image": "Kein Bild zum Archivieren vorhanden",
 
     "label_settings": "Einstellungen",
     "label_basic_settings": "Grundeinstellungen",
