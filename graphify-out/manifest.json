@@ -1,9 +1,4 @@
 {
-  "C:\\Users\\cniemeye\\Desktop\\leaf measurement 2\\Leaf-measurement\\camera ui.py": {
-    "mtime": 1776666698.9745872,
-    "ast_hash": "a2f126d49fa387539adcd93babaebd45",
-    "semantic_hash": "a2f126d49fa387539adcd93babaebd45"
-  },
   "C:\\Users\\cniemeye\\Desktop\\leaf measurement 2\\Leaf-measurement\\lang\\de.json": {
     "mtime": 1781180042.619518,
     "ast_hash": "4950a37cce0d06601232dd96de732360",
@@ -14,15 +9,10 @@
     "ast_hash": "bbc1d712b8f7efff2acde82efff88d6e",
     "semantic_hash": "bbc1d712b8f7efff2acde82efff88d6e"
   },
-  "C:\\Users\\cniemeye\\Desktop\\leaf measurement 2\\Leaf-measurement\\main.py": {
-    "mtime": 1777445089.4004214,
-    "ast_hash": "ffa1ea4e12188ed61fdd4650174b2f57",
-    "semantic_hash": "ffa1ea4e12188ed61fdd4650174b2f57"
-  },
   "C:\\Users\\cniemeye\\Desktop\\leaf measurement 2\\Leaf-measurement\\ui.py": {
-    "mtime": 1781594231.6625772,
-    "ast_hash": "bc4843f6f41f1a00c308d2b340d85927",
-    "semantic_hash": "bc4843f6f41f1a00c308d2b340d85927"
+    "mtime": 1781606651.107157,
+    "ast_hash": "875c546ed0667fb88a784574fc3f4884",
+    "semantic_hash": "875c546ed0667fb88a784574fc3f4884"
   },
   "C:\\Users\\cniemeye\\Desktop\\leaf measurement 2\\Leaf-measurement\\README.md": {
     "mtime": 1776665540.379567,
@@ -30,9 +20,9 @@
     "semantic_hash": "e2db015d164af8a771d3d6118b521bef"
   },
   "C:\\Users\\cniemeye\\Desktop\\leaf measurement 2\\Leaf-measurement\\docs\\APP_DOKUMENTATION.md": {
-    "mtime": 1781180030.8631828,
-    "ast_hash": "9182c823d08e4c95525e5d4129bcb2d3",
-    "semantic_hash": "9182c823d08e4c95525e5d4129bcb2d3"
+    "mtime": 1781606623.8143518,
+    "ast_hash": "c6b1bed181e0a83e4d1f9121be31c742",
+    "semantic_hash": "c6b1bed181e0a83e4d1f9121be31c742"
   },
   "C:\\Users\\cniemeye\\Desktop\\leaf measurement 2\\Leaf-measurement\\docs\\assets\\app_fullpage.png": {
     "mtime": 1780486435.818174,
