@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Leaf Measurement</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="top-nav">
+      <a id="navBrand" class="brand-link" href="/measurements" data-route="measurements">Leaf Measurement</a>
+      <nav class="nav-links">
+        <a id="navLogin" href="/login" data-route="login">Login</a>
+        <a id="navSignup" href="/signup" data-route="signup">Signup</a>
+        <a id="navDashboard" class="hidden" href="/dashboard" data-route="dashboard">Team Dashboard</a>
+        <a id="navArchive" href="/archive" data-route="archive">Projekte & Archiv</a>
+        <a id="navMeasurements" href="/measurements" data-route="measurements">Messungen</a>
+        <a id="navProfile" href="/profile" data-route="profile">Profil</a>
+      </nav>
+    </header>
+    <main class="app">
+      <section class="workspace">
+        <div id="platformPanel" class="panel span-2 platform-panel">
+          <div class="panel-head">
+            <h2 id="platformTitle">Projekte & Account</h2>
+            <div class="toolbar">
+              <span id="authStatus" class="status">Nicht angemeldet</span>
+            </div>
+          </div>
+
+          <div id="authForms" class="platform-grid">
+            <form id="loginForm" class="auth-box">
+              <h3>Login</h3>
+              <label class="field">E-Mail <input id="loginEmail" type="email" autocomplete="email"></label>
+              <label class="field">Passwort <input id="loginPassword" type="password" autocomplete="current-password"></label>
+              <div class="form-actions">
+                <button class="button primary" type="submit">Einloggen</button>
+                <button id="forgotPasswordToggle" class="link-button" type="button">Passwort vergessen?</button>
+              </div>
+            </form>
+            <form id="registerForm" class="auth-box">
+              <h3>Registrieren</h3>
+              <label class="field">E-Mail <input id="registerEmail" type="email" autocomplete="email"></label>
+              <label class="field">Passwort <input id="registerPassword" type="password" autocomplete="new-password" minlength="8"></label>
+              <button class="button primary" type="submit">Account erstellen</button>
+            </form>
+            <form id="resetRequestForm" class="auth-box hidden">
+              <h3>Passwort vergessen</h3>
+              <label class="field">E-Mail <input id="resetEmail" type="email" autocomplete="email"></label>
+              <button class="button" type="submit">Reset-Link senden</button>
+            </form>
+          </div>
+
+          <div id="resetPasswordPanel" class="auth-box hidden">
+            <h3>Neues Passwort setzen</h3>
+            <label class="field">Neues Passwort <input id="newPassword" type="password" minlength="8"></label>
+            <button id="resetPasswordButton" class="button primary">Passwort speichern</button>
+          </div>
+
+          <div id="projectArea" class="hidden">
+            <div class="platform-grid">
+              <section class="auth-box">
+                <h3>Projekt</h3>
+                <label class="field">Aktives Projekt
+                  <select id="projectSelect"></select>
+                </label>
+                <form id="createProjectForm" class="inline-form">
+                  <input id="projectName" type="text" placeholder="Neues Projekt">
+                  <button class="button" type="submit">Erstellen</button>
+                </form>
+              </section>
+
+              <section class="auth-box">
+                <h3>Dashboard</h3>
+                <dl class="metrics compact">
+                  <div><dt>Messungen</dt><dd id="projectMeasurementCount">-</dd></div>
+                  <div><dt>Letzte Messung</dt><dd id="projectLatestMeasurement">-</dd></div>
+                </dl>
+                <label class="field">Join-Link
+                  <input id="projectInviteLink" type="text" readonly>
+                </label>
+                <button id="copyInviteLink" class="button">Link kopieren</button>
+                <a id="projectCsvLink" class="button" href="#">Projekt-ZIP</a>
+                <button id="deleteProjectButton" class="button danger" type="button">Projekt löschen</button>
+              </section>
+
+              <section class="auth-box members-box">
+                <h3>Mitglieder</h3>
+                <ul id="memberList" class="member-list"></ul>
+              </section>
+            </div>
+
+            <section id="measurementBrowser" class="measurement-browser">
+              <div class="panel-head compact">
+                <h3>Messungen browsen</h3>
+                <button id="refreshMeasurements" class="button">Aktualisieren</button>
+              </div>
+              <div class="measurement-layout">
+                <ul id="measurementList" class="measurement-list"></ul>
+                <article id="measurementDetail" class="measurement-detail">
+                  <p class="hint">Wähle eine Messung aus.</p>
+                </article>
+              </div>
+            </section>
+          </div>
+          <div id="profileArea" class="hidden profile-area">
+            <section class="auth-box profile-summary">
+              <h3>Konto</h3>
+              <dl class="metrics compact">
+                <div><dt id="profileEmailLabel">E-Mail</dt><dd id="profileEmailValue">-</dd></div>
+                <div><dt id="profileVerifiedLabel">Verifizierung</dt><dd id="profileVerifiedValue">-</dd></div>
+              </dl>
+              <button id="logoutButton" class="button">Logout</button>
+            </section>
+
+            <form id="profileForm" class="auth-box profile-form">
+              <h3>Kontodaten bearbeiten</h3>
+              <label class="field">E-Mail <input id="profileEmail" type="email" autocomplete="email"></label>
+              <label class="field">Aktuelles Passwort <input id="profileCurrentPassword" type="password" autocomplete="current-password"></label>
+              <label class="field">Neues Passwort <input id="profileNewPassword" type="password" autocomplete="new-password" minlength="8"></label>
+              <button class="button primary" type="submit">Speichern</button>
+            </form>
+          </div>
+          <p id="platformMessage" class="hint"></p>
+        </div>
+
+        <div id="fullPanel" class="panel span-2 measurement-panel">
+          <div class="panel-head">
+            <h1>Leaf Measurement</h1>
+            <div class="toolbar">
+              <span id="cameraStatus" class="status">Kamera: bereit</span>
+              <select id="cameraSelect" class="select"><option value="">Standardkamera</option></select>
+              <button id="refreshCameras" class="button">Kameras suchen</button>
+              <button id="startCamera" class="button primary">Kamera starten</button>
+              <button id="stopCamera" class="button">Stop</button>
+            </div>
+          </div>
+          <video id="cameraVideo" playsinline muted></video>
+          <canvas id="fullCanvas" class="preview wide"></canvas>
+        </div>
+
+        <div id="croppedPanel" class="panel measurement-panel">
+          <div class="panel-head compact">
+            <h2 id="croppedTitle">Cropped</h2>
+            <button id="fullscreenDraw" class="icon-button" title="Vollbild">⛶</button>
+          </div>
+          <div id="drawStage" class="draw-stage">
+            <canvas id="croppedCanvas" class="preview square"></canvas>
+            <canvas id="drawCanvas" class="draw-layer"></canvas>
+          </div>
+          <div class="tool-row">
+            <button id="freezeButton" class="button primary">Freeze</button>
+            <button class="tool active" data-tool="damage" title="Schaden">
+              <svg viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/><circle cx="14.5" cy="10.5" r="2"/></svg>
+            </button>
+            <button class="tool" data-tool="correct" title="Korrekt">
+              <svg viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>
+            </button>
+            <button class="tool" data-tool="exclude" title="Aus Fläche entfernen">⊘</button>
+            <button class="tool" data-tool="eraser" title="Radierer">
+              <svg viewBox="0 0 24 24"><path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"/><path d="m5.082 11.09 8.828 8.828"/></svg>
+            </button>
+            <button id="clearMasks" class="tool" title="Alles löschen">⌫</button>
+            <label class="inline">Größe <input id="brushSize" type="number" min="2" max="120" value="18"></label>
+          </div>
+        </div>
+
+        <div id="resultPanel" class="panel measurement-panel">
+          <h2 id="resultTitle">Ergebnis</h2>
+          <canvas id="resultCanvas" class="preview square"></canvas>
+        </div>
+
+        <div id="maskPanel" class="panel measurement-panel archive-support-panel">
+          <h2 id="maskTitle">Schadensmaske</h2>
+          <canvas id="maskCanvas" class="preview square"></canvas>
+        </div>
+
+        <div id="metricsPanel" class="panel measurement-panel archive-support-panel">
+          <h2 id="metricsTitle">Messwerte</h2>
+          <dl class="metrics">
+            <div><dt id="greenAreaLabel">Grüne Fläche</dt><dd id="areaValue">-</dd></div>
+            <div><dt id="convexHullLabel">Convex Hull</dt><dd id="convexValue">-</dd></div>
+            <div><dt id="damageLabel">Schaden</dt><dd id="damageValue">-</dd></div>
+            <div><dt id="measurementStatusLabel">Status</dt><dd id="statusValue">Noch kein Bild</dd></div>
+          </dl>
+          <div class="toolbar left">
+            <button id="archiveButton" class="button primary">Archivieren</button>
+            <a id="downloadCsv" class="button" href="#">ZIP herunterladen</a>
+          </div>
+          <p id="archiveStatus" class="hint"></p>
+        </div>
+      </section>
+
+      <aside id="settingsPanel" class="settings panel measurement-panel">
+        <h2 id="settingsTitle">Einstellungen</h2>
+        <label class="field">Sprache
+          <select id="languageSelect"><option value="de">Deutsch</option><option value="en">English</option></select>
+        </label>
+        <label class="check"><input id="darkMode" type="checkbox"> Dunkelmodus</label>
+        <label class="check"><input id="cameraMode" type="checkbox" checked> Kamera/Bildmodus</label>
+        <label class="field">Bild
+          <input id="imageUpload" type="file" accept="image/*">
+        </label>
+        <label class="field">Physische Breite cm <input id="physWidth" type="number" step="0.1" value="13.4"></label>
+        <label class="field">Physische Höhe cm <input id="physHeight" type="number" step="0.1" value="13.4"></label>
+        <label class="field">Digitale Auflösung px <input id="digWidth" type="number" min="200" max="1400" value="700"></label>
+        <label class="field">Analyse-FPS <input id="analysisFps" type="number" min="1" max="30" value="8"></label>
+        <label class="field">Kernelgröße <input id="kernelSize" type="number" min="1" max="31" value="5"></label>
+
+        <h3>HSV Live-Grenzen</h3>
+        <label class="range-field">Hue <span id="hueLabel"></span><span class="dual-range" data-min="0" data-max="179"><span class="dual-range-track"></span><input id="hueRange" type="range" min="0" max="179" value="0"><input id="hueRangeMax" type="range" min="0" max="179" value="179"></span></label>
+        <label class="range-field">Saturation <span id="satLabel"></span><span class="dual-range" data-min="0" data-max="255"><span class="dual-range-track"></span><input id="satRange" type="range" min="0" max="255" value="30"><input id="satRangeMax" type="range" min="0" max="255" value="255"></span></label>
+        <label class="range-field">Value <span id="valLabel"></span><span class="dual-range" data-min="0" data-max="255"><span class="dual-range-track"></span><input id="valRange" type="range" min="0" max="255" value="40"><input id="valRangeMax" type="range" min="0" max="255" value="255"></span></label>
+
+        <h3>Masken</h3>
+        <label class="check"><input id="manualEnabled" type="checkbox" checked> Manuelle Masken einrechnen</label>
+        <label class="check"><input id="autoEdgeDamage" type="checkbox" checked> Convex-Randschäden</label>
+        <label class="check"><input id="limitToLeaf" type="checkbox"> Zeichnen auf Blattmaske begrenzen</label>
+        <label class="field">Maske schrumpfen px <input id="shrinkMask" type="number" min="0" max="80" value="0"></label>
+        <label class="check"><input id="showAutoOnCrop" type="checkbox"> Auto-Schäden auf Cropped</label>
+
+        <h3>Anzeige</h3>
+        <label class="check"><input id="drawMarkers" type="checkbox" checked> Marker anzeigen</label>
+        <label class="check"><input id="drawBoundary" type="checkbox" checked> Fläche markieren</label>
+        <label class="check"><input id="drawContours" type="checkbox" checked> Umrandung</label>
+        <label class="check"><input id="drawHull" type="checkbox" checked> Convex Hull</label>
+      </aside>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
