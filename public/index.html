@@ -9,6 +9,93 @@
   <body>
     <main class="app">
       <section class="workspace">
+        <div class="panel span-2 platform-panel">
+          <div class="panel-head">
+            <h2>Projekte & Account</h2>
+            <div class="toolbar">
+              <span id="authStatus" class="status">Nicht angemeldet</span>
+              <button id="logoutButton" class="button hidden">Logout</button>
+            </div>
+          </div>
+
+          <div id="authForms" class="platform-grid">
+            <form id="loginForm" class="auth-box">
+              <h3>Login</h3>
+              <label class="field">E-Mail <input id="loginEmail" type="email" autocomplete="email"></label>
+              <label class="field">Passwort <input id="loginPassword" type="password" autocomplete="current-password"></label>
+              <button class="button primary" type="submit">Einloggen</button>
+            </form>
+            <form id="registerForm" class="auth-box">
+              <h3>Registrieren</h3>
+              <label class="field">E-Mail <input id="registerEmail" type="email" autocomplete="email"></label>
+              <label class="field">Passwort <input id="registerPassword" type="password" autocomplete="new-password" minlength="8"></label>
+              <button class="button primary" type="submit">Account erstellen</button>
+            </form>
+            <form id="resetRequestForm" class="auth-box">
+              <h3>Passwort vergessen</h3>
+              <label class="field">E-Mail <input id="resetEmail" type="email" autocomplete="email"></label>
+              <button class="button" type="submit">Reset-Link senden</button>
+            </form>
+          </div>
+
+          <div id="resetPasswordPanel" class="auth-box hidden">
+            <h3>Neues Passwort setzen</h3>
+            <label class="field">Neues Passwort <input id="newPassword" type="password" minlength="8"></label>
+            <button id="resetPasswordButton" class="button primary">Passwort speichern</button>
+          </div>
+
+          <div id="projectArea" class="hidden">
+            <div class="platform-grid">
+              <section class="auth-box">
+                <h3>Projekt</h3>
+                <label class="field">Aktives Projekt
+                  <select id="projectSelect"></select>
+                </label>
+                <form id="createProjectForm" class="inline-form">
+                  <input id="projectName" type="text" placeholder="Neues Projekt">
+                  <button class="button" type="submit">Erstellen</button>
+                </form>
+                <form id="joinProjectForm" class="inline-form">
+                  <input id="joinLinkInput" type="url" placeholder="Join-Link einfügen">
+                  <button class="button" type="submit">Beitreten</button>
+                </form>
+              </section>
+
+              <section class="auth-box">
+                <h3>Dashboard</h3>
+                <dl class="metrics compact">
+                  <div><dt>Messungen</dt><dd id="projectMeasurementCount">-</dd></div>
+                  <div><dt>Letzte Messung</dt><dd id="projectLatestMeasurement">-</dd></div>
+                </dl>
+                <label class="field">Join-Link
+                  <input id="projectInviteLink" type="text" readonly>
+                </label>
+                <button id="copyInviteLink" class="button">Link kopieren</button>
+                <a id="projectCsvLink" class="button" href="#">Projekt-CSV</a>
+              </section>
+
+              <section class="auth-box members-box">
+                <h3>Mitglieder</h3>
+                <ul id="memberList" class="member-list"></ul>
+              </section>
+            </div>
+
+            <section class="measurement-browser">
+              <div class="panel-head compact">
+                <h3>Messungen browsen</h3>
+                <button id="refreshMeasurements" class="button">Aktualisieren</button>
+              </div>
+              <div class="measurement-layout">
+                <ul id="measurementList" class="measurement-list"></ul>
+                <article id="measurementDetail" class="measurement-detail">
+                  <p class="hint">Wähle eine Messung aus.</p>
+                </article>
+              </div>
+            </section>
+          </div>
+          <p id="platformMessage" class="hint"></p>
+        </div>
+
         <div class="panel span-2">
           <div class="panel-head">
             <h1>Leaf Measurement</h1>
@@ -70,7 +157,7 @@
           </dl>
           <div class="toolbar left">
             <button id="archiveButton" class="button primary">Archivieren</button>
-            <a class="button" href="/api/archive.csv">CSV herunterladen</a>
+            <a id="downloadCsv" class="button" href="#">CSV herunterladen</a>
           </div>
           <p id="archiveStatus" class="hint"></p>
         </div>

@@ -20,6 +20,28 @@ const els = {
   archive: $('archiveButton'),
   archiveStatus: $('archiveStatus'),
   csv: $('downloadCsv'),
+  authStatus: $('authStatus'),
+  authForms: $('authForms'),
+  logout: $('logoutButton'),
+  loginForm: $('loginForm'),
+  registerForm: $('registerForm'),
+  resetRequestForm: $('resetRequestForm'),
+  resetPasswordPanel: $('resetPasswordPanel'),
+  resetPasswordButton: $('resetPasswordButton'),
+  platformMessage: $('platformMessage'),
+  projectArea: $('projectArea'),
+  projectSelect: $('projectSelect'),
+  createProjectForm: $('createProjectForm'),
+  joinProjectForm: $('joinProjectForm'),
+  projectMeasurementCount: $('projectMeasurementCount'),
+  projectLatestMeasurement: $('projectLatestMeasurement'),
+  projectInviteLink: $('projectInviteLink'),
+  copyInviteLink: $('copyInviteLink'),
+  projectCsvLink: $('projectCsvLink'),
+  memberList: $('memberList'),
+  refreshMeasurements: $('refreshMeasurements'),
+  measurementList: $('measurementList'),
+  measurementDetail: $('measurementDetail'),
   area: $('areaValue'),
   convex: $('convexValue'),
   damage: $('damageValue'),
@@ -69,6 +91,11 @@ const state = {
   lastDetection: null,
   masks: { width: 0, damage: null, correct: null, exclude: null },
   lastMeasurement: null,
+  user: null,
+  projects: [],
+  activeProjectId: localStorage.getItem('leafActiveProjectId') || '',
+  measurements: [],
+  resetToken: new URLSearchParams(location.search).get('reset') || '',
 };
 
 const FROZEN_ANALYSIS_INTERVAL_MS = 220;
@@ -197,7 +224,7 @@ function applyLanguage() {
   document.querySelectorAll('.metrics dt')[3].textContent = tr('status');
   if (!state.lastMeasurement) els.status.textContent = tr('noImage');
   els.archive.textContent = tr('archive');
-  document.querySelector('a[href="/api/archive.csv"]').textContent = tr('downloadCsv');
+  els.csv.textContent = tr('downloadCsv');
   document.querySelector('.settings h2').textContent = tr('settings');
   const fields = document.querySelectorAll('.settings .field');
   setLabelText(fields[0], tr('language'));
@@ -279,6 +306,201 @@ function updateDualRange(minInput, maxInput) {
   const span = Math.max(1, max - min);
   wrapper.style.setProperty('--range-start', `${((low - min) / span) * 100}%`);
   wrapper.style.setProperty('--range-end', `${((high - min) / span) * 100}%`);
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json', ...(options.headers || {}) },
+    ...options,
+    body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+  return data;
+}
+
+function setPlatformMessage(message) {
+  els.platformMessage.textContent = message || '';
+}
+
+function formatDate(iso) {
+  if (!iso) return '-';
+  return new Intl.DateTimeFormat(inputs.language.value === 'en' ? 'en' : 'de', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(new Date(iso));
+}
+
+function activeProject() {
+  return state.projects.find((project) => project.id === state.activeProjectId) || state.projects[0] || null;
+}
+
+function extractInviteToken(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  try {
+    const url = new URL(text, location.origin);
+    return url.searchParams.get('join') || text;
+  } catch {
+    return text;
+  }
+}
+
+async function refreshAccount() {
+  const data = await api('/api/me');
+  state.user = data.user;
+  state.projects = data.projects || [];
+  if (state.activeProjectId && !state.projects.some((project) => project.id === state.activeProjectId)) {
+    state.activeProjectId = '';
+  }
+  if (!state.activeProjectId && state.projects[0]) state.activeProjectId = state.projects[0].id;
+  if (state.activeProjectId) localStorage.setItem('leafActiveProjectId', state.activeProjectId);
+  renderAccount();
+  if (state.user && activeProject()) await refreshMeasurements();
+}
+
+function renderAccount() {
+  const loggedIn = Boolean(state.user);
+  els.authForms.classList.toggle('hidden', loggedIn);
+  els.logout.classList.toggle('hidden', !loggedIn);
+  els.projectArea.classList.toggle('hidden', !loggedIn);
+  els.authStatus.textContent = loggedIn
+    ? `${state.user.email}${state.user.verified ? '' : ' (E-Mail unbestätigt)'}`
+    : 'Nicht angemeldet';
+  els.archive.disabled = !loggedIn || !activeProject();
+  if (!loggedIn) return;
+
+  els.projectSelect.replaceChildren();
+  for (const project of state.projects) {
+    els.projectSelect.add(new Option(project.name, project.id, false, project.id === state.activeProjectId));
+  }
+  renderProjectDashboard();
+}
+
+function renderProjectDashboard() {
+  const project = activeProject();
+  if (!project) {
+    els.projectMeasurementCount.textContent = '-';
+    els.projectLatestMeasurement.textContent = '-';
+    els.projectInviteLink.value = '';
+    els.projectCsvLink.href = '#';
+    els.csv.href = '#';
+    els.memberList.replaceChildren();
+    return;
+  }
+  els.projectMeasurementCount.textContent = String(project.measurementCount ?? 0);
+  els.projectLatestMeasurement.textContent = formatDate(project.latestMeasurementAt);
+  els.projectInviteLink.value = project.inviteUrl || '';
+  els.projectCsvLink.href = `/api/projects/${project.id}/archive.csv`;
+  els.csv.href = `/api/projects/${project.id}/archive.csv`;
+  els.memberList.replaceChildren(...(project.members || []).map((member) => {
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.textContent = member.email;
+    const role = document.createElement('span');
+    role.className = 'member-role';
+    role.textContent = member.role === 'owner' ? 'Owner' : 'Member';
+    li.append(name, role);
+    return li;
+  }));
+}
+
+function renderMeasurementList() {
+  els.measurementList.replaceChildren();
+  if (!state.measurements.length) {
+    const li = document.createElement('li');
+    li.className = 'hint';
+    li.textContent = 'Noch keine Messungen im Projekt.';
+    els.measurementList.append(li);
+    els.measurementDetail.innerHTML = '<p class="hint">Archiviere eine Messung oder wähle einen anderen Projektkontext.</p>';
+    return;
+  }
+  for (const measurement of state.measurements) {
+    const li = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.innerHTML = `
+      <span class="measurement-title">
+        <span>${formatDate(measurement.createdAt)}</span>
+        <span>${Number(measurement.damagePercent || 0).toFixed(1)}%</span>
+      </span>
+      <span class="measurement-meta">${measurement.userEmail || ''} · ${Number(measurement.greenArea || 0).toFixed(3)} cm² Blatt · ${Number(measurement.damageArea || 0).toFixed(3)} cm² Schaden</span>
+    `;
+    button.addEventListener('click', () => selectMeasurement(measurement.id, button));
+    li.append(button);
+    els.measurementList.append(li);
+  }
+}
+
+async function refreshMeasurements() {
+  const project = activeProject();
+  if (!project) return;
+  const data = await api(`/api/projects/${project.id}/measurements`);
+  state.measurements = data.measurements || [];
+  renderMeasurementList();
+}
+
+async function selectMeasurement(measurementId, button) {
+  const project = activeProject();
+  if (!project) return;
+  document.querySelectorAll('.measurement-list button').forEach((item) => item.classList.toggle('active', item === button));
+  const data = await api(`/api/projects/${project.id}/measurements/${measurementId}`);
+  renderMeasurementDetail(data.measurement);
+}
+
+function renderMeasurementDetail(measurement) {
+  const stats = [
+    ['Grüne Fläche', `${Number(measurement.greenArea || 0).toFixed(3)} cm²`],
+    ['Convex Hull', `${Number(measurement.convexArea || 0).toFixed(3)} cm²`],
+    ['Schaden', `${Number(measurement.damageArea || 0).toFixed(3)} cm² (${Number(measurement.damagePercent || 0).toFixed(1)}%)`],
+    ['Status', measurement.status || '-'],
+    ['Erstellt von', measurement.userEmail || '-'],
+    ['Zeitpunkt', formatDate(measurement.createdAt)],
+  ];
+  const imageLabels = { full: 'Fullframe', cropped: 'Cropped', result: 'Ergebnis', mask: 'Schadensmaske' };
+  els.measurementDetail.innerHTML = `
+    <h3>Messung ${formatDate(measurement.createdAt)}</h3>
+    <dl class="metrics compact">
+      ${stats.map(([key, value]) => `<div><dt>${key}</dt><dd>${value}</dd></div>`).join('')}
+    </dl>
+    <div class="measurement-images">
+      ${Object.entries(measurement.images || {}).filter(([, src]) => src).map(([key, src]) => `
+        <div class="measurement-image-card">
+          <strong>${imageLabels[key] || key}</strong>
+          <img src="${src}" alt="${imageLabels[key] || key}">
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function handleUrlTokens() {
+  const params = new URLSearchParams(location.search);
+  const verifyToken = params.get('verify');
+  const joinToken = params.get('join');
+  if (verifyToken) {
+    await api('/api/auth/verify', { method: 'POST', body: { token: verifyToken } });
+    setPlatformMessage('E-Mail bestätigt. Du kannst dich jetzt einloggen.');
+    history.replaceState(null, '', location.pathname);
+  }
+  if (state.resetToken) {
+    els.resetPasswordPanel.classList.remove('hidden');
+    setPlatformMessage('Bitte setze ein neues Passwort.');
+  }
+  if (joinToken) {
+    await refreshAccount();
+    if (state.user) {
+      await api('/api/projects/join', { method: 'POST', body: { token: joinToken } });
+      setPlatformMessage('Projekt beigetreten.');
+      history.replaceState(null, '', location.pathname);
+      await refreshAccount();
+    } else {
+      setPlatformMessage('Bitte einloggen oder registrieren, um dem Projekt beizutreten.');
+    }
+  }
 }
 
 function setStatus(text) {
@@ -1044,7 +1266,13 @@ async function archiveCurrent() {
     els.archiveStatus.textContent = 'Kein Messbild zum Archivieren vorhanden';
     return;
   }
+  const project = activeProject();
+  if (!state.user || !project) {
+    els.archiveStatus.textContent = 'Bitte zuerst einloggen und ein Projekt wählen.';
+    return;
+  }
   const body = {
+    projectId: project.id,
     measurement: state.lastMeasurement,
     settings: settings(),
     images: {
@@ -1054,16 +1282,126 @@ async function archiveCurrent() {
       mask: els.mask.toDataURL('image/png'),
     },
   };
-  const response = await fetch('/api/archive', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const result = await response.json();
-  els.archiveStatus.textContent = result.ok ? 'Archiviert' : `Fehler: ${result.error || 'unbekannt'}`;
+  try {
+    const result = await api('/api/archive', { method: 'POST', body });
+    els.archiveStatus.textContent = result.ok ? 'Archiviert' : `Fehler: ${result.error || 'unbekannt'}`;
+    await refreshAccount();
+  } catch (error) {
+    els.archiveStatus.textContent = `Fehler: ${error.message}`;
+  }
 }
 
 function setupEvents() {
+  els.loginForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await api('/api/auth/login', {
+        method: 'POST',
+        body: {
+          email: $('loginEmail').value,
+          password: $('loginPassword').value,
+        },
+      });
+      setPlatformMessage('Eingeloggt.');
+      await refreshAccount();
+    } catch (error) {
+      setPlatformMessage(`Login fehlgeschlagen: ${error.message}`);
+    }
+  });
+  els.registerForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await api('/api/auth/register', {
+        method: 'POST',
+        body: {
+          email: $('registerEmail').value,
+          password: $('registerPassword').value,
+        },
+      });
+      setPlatformMessage('Account erstellt. Bitte E-Mail-Link bestätigen. Lokal liegt die Mail in data/mail-outbox.jsonl.');
+    } catch (error) {
+      setPlatformMessage(`Registrierung fehlgeschlagen: ${error.message}`);
+    }
+  });
+  els.resetRequestForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await api('/api/auth/forgot-password', {
+        method: 'POST',
+        body: { email: $('resetEmail').value },
+      });
+      setPlatformMessage('Falls der Account existiert, wurde ein Reset-Link erzeugt. Lokal liegt er in data/mail-outbox.jsonl.');
+    } catch (error) {
+      setPlatformMessage(`Reset fehlgeschlagen: ${error.message}`);
+    }
+  });
+  els.resetPasswordButton.addEventListener('click', async () => {
+    try {
+      await api('/api/auth/reset-password', {
+        method: 'POST',
+        body: { token: state.resetToken, password: $('newPassword').value },
+      });
+      state.resetToken = '';
+      els.resetPasswordPanel.classList.add('hidden');
+      history.replaceState(null, '', location.pathname);
+      setPlatformMessage('Passwort geändert. Bitte neu einloggen.');
+    } catch (error) {
+      setPlatformMessage(`Passwort konnte nicht geändert werden: ${error.message}`);
+    }
+  });
+  els.logout.addEventListener('click', async () => {
+    await api('/api/auth/logout', { method: 'POST', body: {} });
+    state.user = null;
+    state.projects = [];
+    state.measurements = [];
+    renderAccount();
+    renderMeasurementList();
+    setPlatformMessage('Ausgeloggt.');
+  });
+  els.createProjectForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      const result = await api('/api/projects', {
+        method: 'POST',
+        body: { name: $('projectName').value },
+      });
+      state.activeProjectId = result.project.id;
+      localStorage.setItem('leafActiveProjectId', state.activeProjectId);
+      $('projectName').value = '';
+      setPlatformMessage('Projekt erstellt.');
+      await refreshAccount();
+    } catch (error) {
+      setPlatformMessage(`Projekt konnte nicht erstellt werden: ${error.message}`);
+    }
+  });
+  els.joinProjectForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      const result = await api('/api/projects/join', {
+        method: 'POST',
+        body: { token: extractInviteToken($('joinLinkInput').value) },
+      });
+      state.activeProjectId = result.project.id;
+      localStorage.setItem('leafActiveProjectId', state.activeProjectId);
+      $('joinLinkInput').value = '';
+      setPlatformMessage('Projekt beigetreten.');
+      await refreshAccount();
+    } catch (error) {
+      setPlatformMessage(`Beitritt fehlgeschlagen: ${error.message}`);
+    }
+  });
+  els.projectSelect.addEventListener('change', async () => {
+    state.activeProjectId = els.projectSelect.value;
+    localStorage.setItem('leafActiveProjectId', state.activeProjectId);
+    renderProjectDashboard();
+    await refreshMeasurements();
+  });
+  els.copyInviteLink.addEventListener('click', async () => {
+    if (!els.projectInviteLink.value) return;
+    await navigator.clipboard?.writeText(els.projectInviteLink.value);
+    setPlatformMessage('Join-Link kopiert.');
+  });
+  els.refreshMeasurements.addEventListener('click', refreshMeasurements);
   els.refreshCameras.addEventListener('click', refreshCameras);
   els.startCamera.addEventListener('click', startCamera);
   els.stopCamera.addEventListener('click', () => stopCamera(true));
@@ -1138,6 +1476,13 @@ async function init() {
   updateRangeLabels();
   setupEvents();
   applyLanguage();
+  try {
+    await handleUrlTokens();
+    await refreshAccount();
+  } catch (error) {
+    setPlatformMessage(error.message);
+    await refreshAccount().catch(() => {});
+  }
   await refreshCameras();
   requestAnimationFrame(loop);
 }
