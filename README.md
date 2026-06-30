@@ -93,11 +93,21 @@ Empfohlenes Setup:
 3. HTTPS-Zertifikat aktivieren.
 4. Schreibrechte für `archive/` und `data/` sicherstellen, wenn Accounts und Archivierung genutzt werden sollen.
 5. `PUBLIC_URL=https://leafmeasurement.casparniemeyer.com` setzen, damit E-Mail-Links auf die Produktionsdomain zeigen.
+6. `JWT_SECRET` mit einem langen zufälligen Wert setzen, damit Session-JWTs auch nach Neustarts stabil und sicher signiert bleiben.
 
 Beispiel mit Umgebungsvariable:
 
 ```bash
 HOST=127.0.0.1 PORT=8080 npm start
+```
+
+Empfohlene Produktionsvariablen:
+
+```bash
+PUBLIC_URL=https://leafmeasurement.casparniemeyer.com
+JWT_SECRET=<mindestens 32 zufällige Zeichen>
+HOST=127.0.0.1
+PORT=8080
 ```
 
 ## Benutzer und Projekte
@@ -256,6 +266,23 @@ Die Live-Bildanalyse findet lokal im Browser statt. Das bedeutet:
 - Archivierte Bilder und CSV-Daten liegen serverseitig unter `archive/projects/`.
 - Benutzer-, Session- und Projektdaten liegen in `data/app-db.json`.
 - Bestätigungs- und Reset-Mails werden lokal in `data/mail-outbox.jsonl` protokolliert, solange kein echter Mailversand angebunden ist.
+
+## Sicherheit
+
+Der Server setzt mehrere Schutzmaßnahmen um:
+
+- Session-Cookies sind `HttpOnly`, `SameSite=Lax` und auf HTTPS zusätzlich `Secure`.
+- Die Session im Cookie ist ein HMAC-SHA256-signiertes JWT.
+- Jedes JWT wird zusätzlich serverseitig per Hash in `data/app-db.json` hinterlegt. Dadurch können Sessions widerrufen werden und ein frei erfundener oder manipulierter Token wird abgelehnt.
+- Logout entfernt die Session serverseitig.
+- Passwort-Hashes werden mit `scrypt` und individuellem Salt gespeichert.
+- E-Mail-Verifizierungs- und Passwort-Reset-Tokens werden nur gehasht gespeichert.
+- Mutierende API-Requests prüfen den `Origin`-Header.
+- API-POSTs müssen `application/json` verwenden.
+- Auth-Endpunkte haben einfache IP-basierte Rate-Limits.
+- Security-Header werden gesetzt: CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Cross-Origin-Opener-Policy`, `Permissions-Policy` und auf HTTPS HSTS.
+
+Für Produktion sollte zusätzlich ein echter SMTP- oder Transaktionsmaildienst angebunden werden. Außerdem sollten regelmäßige Backups für `data/` und `archive/projects/` eingerichtet werden.
 
 ## Hinweise zur Marker-Erkennung
 

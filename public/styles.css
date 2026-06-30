@@ -34,10 +34,75 @@ body {
   color: var(--text);
 }
 
+.top-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel), transparent 4%);
+  backdrop-filter: blur(10px);
+}
+
+.brand-link,
+.nav-links a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.brand-link {
+  font-weight: 800;
+}
+
+.nav-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nav-links a {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 9px;
+  color: var(--muted);
+}
+
+.nav-links a:hover,
+.nav-links a.active {
+  border-color: var(--accent);
+  background: rgba(22, 163, 74, 0.12);
+  color: var(--text);
+}
+
 button,
 input,
 select {
   font: inherit;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.link-button {
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  padding: 6px 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.link-button:hover {
+  text-decoration: underline;
 }
 
 .app {
@@ -73,6 +138,115 @@ select {
   display: none !important;
 }
 
+.page-hidden {
+  display: none !important;
+}
+
+body[data-page="login"] .app,
+body[data-page="signup"] .app,
+body[data-page="dashboard"] .app,
+body[data-page="archive"] .app,
+body[data-page="profile"] .app {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body[data-page="login"] .workspace,
+body[data-page="signup"] .workspace,
+body[data-page="dashboard"] .workspace,
+body[data-page="archive"] .workspace,
+body[data-page="profile"] .workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body[data-page="login"] .app {
+  width: min(980px, 100%);
+  padding-top: clamp(28px, 8vh, 96px);
+}
+
+body[data-page="signup"] .app {
+  width: min(620px, 100%);
+  padding-top: clamp(28px, 8vh, 96px);
+}
+
+body[data-page="dashboard"] .app {
+  width: min(1220px, 100%);
+}
+
+body[data-page="archive"] .app {
+  width: min(1380px, 100%);
+}
+
+body[data-page="profile"] .app {
+  width: min(920px, 100%);
+}
+
+body[data-page="archive"] #platformPanel {
+  grid-column: 1 / -1;
+}
+
+body[data-page="login"] #platformPanel,
+body[data-page="signup"] #platformPanel {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  justify-self: center;
+  padding: 0;
+  width: min(520px, 100%);
+}
+
+body[data-page="signup"] #platformPanel {
+  width: min(620px, 100%);
+}
+
+body[data-page="login"] #platformPanel > .panel-head,
+body[data-page="signup"] #platformPanel > .panel-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  justify-items: center;
+  padding: 0 2px 4px;
+  text-align: center;
+}
+
+body[data-page="login"] #platformPanel > .panel-head .toolbar,
+body[data-page="signup"] #platformPanel > .panel-head .toolbar {
+  justify-content: center;
+  width: 100%;
+}
+
+body[data-page="login"] #platformTitle,
+body[data-page="signup"] #platformTitle {
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+  margin: 0;
+}
+
+body[data-page="login"] #authStatus,
+body[data-page="signup"] #authStatus {
+  color: var(--muted);
+  display: block;
+  width: min(100%, 520px);
+  text-align: center;
+}
+
+body[data-page="login"] #authForms {
+  grid-template-columns: minmax(0, 520px);
+  justify-content: center;
+}
+
+body[data-page="signup"] #authForms {
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: center;
+}
+
+body[data-page="login"] .auth-box,
+body[data-page="signup"] .auth-box,
+body[data-page="login"] #resetPasswordPanel,
+body[data-page="signup"] #resetPasswordPanel {
+  background: var(--panel);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.08);
+}
+
 .platform-panel {
   display: grid;
   gap: 12px;
@@ -82,6 +256,16 @@ select {
   display: grid;
   grid-template-columns: repeat(3, minmax(220px, 1fr));
   gap: 12px;
+}
+
+.profile-area {
+  display: grid;
+  grid-template-columns: minmax(300px, 440px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.profile-summary {
+  align-self: start;
 }
 
 .auth-box {
@@ -127,10 +311,26 @@ select {
 
 .member-list li {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
   border-bottom: 1px solid var(--border);
   padding: 6px 0;
+}
+
+.member-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .member-role {
@@ -158,6 +358,7 @@ select {
 
 .measurement-list button {
   width: 100%;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: transparent;
@@ -173,17 +374,41 @@ select {
   background: rgba(22, 163, 74, 0.1);
 }
 
+.measurement-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.measurement-list .measurement-delete {
+  width: auto;
+  align-self: stretch;
+  text-align: center;
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
 .measurement-title {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   font-weight: 700;
+  min-width: 0;
 }
 
 .measurement-meta {
+  display: block;
   color: var(--muted);
   font-size: 0.84rem;
   margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 
 .measurement-detail {
@@ -340,6 +565,22 @@ h3 {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+.button.danger {
+  border-color: color-mix(in srgb, var(--danger), var(--border) 30%);
+  color: var(--danger);
+}
+
+.button.danger:hover {
+  background: rgba(220, 38, 38, 0.12);
+  border-color: var(--danger);
+}
+
+.button.small {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
 }
 
 .button:hover,
@@ -500,8 +741,8 @@ h3 {
 }
 
 .metrics div {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(88px, max-content) minmax(0, 1fr);
   gap: 12px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 6px;
@@ -515,6 +756,13 @@ h3 {
   margin: 0;
   font-weight: 700;
   text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.metrics dt {
+  min-width: 0;
 }
 
 @media (max-width: 1180px) {
@@ -529,12 +777,40 @@ h3 {
 }
 
 @media (max-width: 760px) {
+  .top-nav {
+    position: sticky;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .brand-link {
+    text-align: center;
+  }
+
+  .nav-links {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 6px;
+  }
+
+  .nav-links a {
+    display: grid;
+    min-height: 36px;
+    place-items: center;
+    padding: 7px 8px;
+    text-align: center;
+  }
+
   .app {
     padding: 8px;
+    gap: 10px;
   }
 
   .workspace {
     grid-template-columns: 1fr;
+    gap: 10px;
   }
 
   .span-2 {
@@ -542,8 +818,98 @@ h3 {
   }
 
   .platform-grid,
+  .profile-area,
   .measurement-layout,
   .measurement-images {
     grid-template-columns: 1fr;
+  }
+
+  body[data-page="login"] .app,
+  body[data-page="signup"] .app {
+    padding-top: 14px;
+  }
+
+  body[data-page="login"] #authForms,
+  body[data-page="signup"] #authForms {
+    grid-template-columns: 1fr;
+  }
+
+  body[data-page="login"] #platformPanel > .panel-head,
+  body[data-page="signup"] #platformPanel > .panel-head {
+    align-items: center;
+  }
+
+  .panel {
+    padding: 12px;
+  }
+
+  .panel-head {
+    align-items: flex-start;
+  }
+
+  .panel-head .toolbar {
+    width: 100%;
+  }
+
+  .toolbar .select,
+  .toolbar button {
+    flex: 1 1 150px;
+  }
+
+  .inline-form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .inline-form .button,
+  .form-actions .button {
+    width: 100%;
+  }
+
+  .form-actions {
+    align-items: stretch;
+  }
+
+  .link-button {
+    text-align: left;
+  }
+
+  .measurement-list {
+    max-height: 360px;
+  }
+
+  .measurement-list-item {
+    grid-template-columns: 1fr;
+  }
+
+  .measurement-list .measurement-delete {
+    width: 100%;
+  }
+
+  .tool-row {
+    align-items: center;
+  }
+
+  .tool-row .inline {
+    flex: 1 1 120px;
+  }
+}
+
+@media (max-width: 520px) {
+  .metrics div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .metrics dd {
+    text-align: left;
+  }
+
+  .measurement-title {
+    display: grid;
+  }
+
+  .top-nav {
+    padding-inline: 8px;
   }
 }

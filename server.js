@@ -1,7 +1,9 @@
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync, promises as fs } from 'node:fs';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import path from 'node:path';
+import tls from 'node:tls';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -10,14 +12,32 @@ const archiveDir = path.join(__dirname, 'archive');
 const dataDir = path.join(__dirname, 'data');
 const dbPath = path.join(dataDir, 'app-db.json');
 const mailOutboxPath = path.join(dataDir, 'mail-outbox.jsonl');
+loadEnvFile();
 const port = Number(process.env.PORT || 8080);
 const host = process.env.HOST || '0.0.0.0';
 const publicUrl = (process.env.PUBLIC_URL || 'http://localhost:8080').replace(/\/$/, '');
+const allowedOrigins = new Set([
+  publicUrl,
+  'http://localhost:8080',
+  'http://127.0.0.1:8080',
+  'https://leafmeasurement.casparniemeyer.com',
+  'https://leafmeasure.casparniemeyer.com',
+].map((origin) => origin.replace(/\/$/, '')));
 const sessionDays = 14;
 const jwtIssuer = 'leaf-measurement';
 const jwtAudience = 'leaf-measurement-web';
 const jwtSecret = getJwtSecret();
 const rateLimits = new Map();
+const smtpConfig = {
+  host: process.env.SMTP_HOST || '',
+  port: Number(process.env.SMTP_PORT || 587),
+  user: process.env.SMTP_USER || '',
+  pass: process.env.SMTP_PASS || '',
+  from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+  fromName: process.env.SMTP_FROM_NAME || 'Leaf Measurement',
+  secure: parseBoolean(process.env.SMTP_SECURE, false),
+  rejectUnauthorized: parseBoolean(process.env.SMTP_REJECT_UNAUTHORIZED, true),
+};
 
 const mimeTypes = new Map([
   ['.html', 'text/html; charset=utf-8'],
@@ -54,6 +74,28 @@ const csvFields = [
 
 let writeQueue = Promise.resolve();
 
+function loadEnvFile() {
+  const envPath = path.join(__dirname, '.env');
+  if (!existsSync(envPath)) return;
+  const lines = readFileSync(envPath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+    const index = trimmed.indexOf('=');
+    const key = trimmed.slice(0, index).trim();
+    let value = trimmed.slice(index + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (key && process.env[key] == null) process.env[key] = value;
+  }
+}
+
+function parseBoolean(value, fallback = false) {
+  if (value == null || value === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+}
+
 function getJwtSecret() {
   if (process.env.JWT_SECRET && process.env.JWT_SECRET.length >= 32) {
     return Buffer.from(process.env.JWT_SECRET, 'utf8');
@@ -76,6 +118,16 @@ function emptyDb() {
     resetTokens: [],
     createdAt: new Date().toISOString(),
   };
+}
+
+function normalizeDb(db) {
+  db.users ||= [];
+  db.sessions ||= [];
+  db.projects ||= [];
+  db.measurements ||= [];
+  db.verifyTokens ||= [];
+  db.resetTokens ||= [];
+  return db;
 }
 
 function id(prefix) {
@@ -105,6 +157,128 @@ function isExpired(iso) {
 function csvEscape(value) {
   const text = value == null ? '' : String(value);
   return `"${text.replaceAll('"', '""')}"`;
+}
+
+function measurementCsvRow(measurement, db) {
+  const user = db.users.find((item) => item.id === measurement.userId);
+  return {
+    timestamp: measurement.createdAt,
+    measurement_id: measurement.id,
+    project_id: measurement.projectId,
+    user_email: user?.email || '',
+    status: measurement.status || '',
+    green_area_cm2: measurement.greenArea ?? '',
+    convex_hull_cm2: measurement.convexArea ?? '',
+    damage_cm2: measurement.damageArea ?? '',
+    damage_percent: measurement.damagePercent ?? '',
+    markers: measurement.markers ?? '',
+    physical_width_cm: measurement.settings?.physWidth ?? '',
+    physical_height_cm: measurement.settings?.physHeight ?? '',
+    digital_width_px: measurement.settings?.digWidth ?? '',
+    analysis_fps: measurement.settings?.analysisFps ?? '',
+    full_image: measurement.images?.full || '',
+    cropped_image: measurement.images?.cropped || '',
+    result_image: measurement.images?.result || '',
+    mask_image: measurement.images?.mask || '',
+  };
+}
+
+function projectCsvContent(db, projectId) {
+  const rows = db.measurements
+    .filter((item) => item.projectId === projectId)
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+    .map((measurement) => measurementCsvRow(measurement, db));
+  return [
+    `${csvFields.map(csvEscape).join(',')}`,
+    ...rows.map((row) => csvFields.map((field) => csvEscape(row[field])).join(',')),
+  ].join('\n') + '\n';
+}
+
+async function rewriteProjectCsv(db, projectId) {
+  const projectArchive = await ensureProjectArchive(projectId);
+  await fs.writeFile(projectArchive.csvPath, projectCsvContent(db, projectId), 'utf8');
+}
+
+const crcTable = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let value = i;
+    for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    table[i] = value >>> 0;
+  }
+  return table;
+})();
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function dosDateTime(date = new Date()) {
+  const year = Math.max(1980, date.getFullYear());
+  const time = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const day = ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  return { time, day };
+}
+
+function createZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  const { time, day } = dosDateTime();
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name.replaceAll('\\', '/'), 'utf8');
+    const data = Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(entry.data);
+    const checksum = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt16LE(time, 10);
+    local.writeUInt16LE(day, 12);
+    local.writeUInt32LE(checksum, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    local.writeUInt16LE(0, 28);
+    localParts.push(local, name, data);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0, 8);
+    central.writeUInt16LE(0, 10);
+    central.writeUInt16LE(time, 12);
+    central.writeUInt16LE(day, 14);
+    central.writeUInt32LE(checksum, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt16LE(0, 34);
+    central.writeUInt16LE(0, 36);
+    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, name);
+    offset += local.length + name.length + data.length;
+  }
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralSize, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+  return Buffer.concat([...localParts, ...centralParts, end]);
 }
 
 function base64url(input) {
@@ -238,10 +412,14 @@ async function ensureDataDir() {
 async function readDb() {
   await ensureDataDir();
   try {
-    return JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    const db = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    const changed = normalizeDb(db);
+    if (changed) await fs.writeFile(dbPath, JSON.stringify(db, null, 2), 'utf8');
+    return db;
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     const db = emptyDb();
+    normalizeDb(db);
     await fs.writeFile(dbPath, JSON.stringify(db, null, 2), 'utf8');
     return db;
   }
@@ -328,7 +506,8 @@ function assertSameOrigin(request) {
   const actual = new URL(origin);
   const sameOrigin = actual.protocol === expected.protocol && actual.host === expected.host;
   const localDev = ['localhost', '127.0.0.1'].includes(actual.hostname) && ['localhost', '127.0.0.1'].includes(expected.hostname);
-  if (!sameOrigin && !localDev) {
+  const allowedOrigin = allowedOrigins.has(origin.replace(/\/$/, ''));
+  if (!sameOrigin && !localDev && !allowedOrigin) {
     const error = new Error('invalid_origin');
     error.status = 403;
     throw error;
@@ -346,10 +525,178 @@ function assertJsonRequest(request) {
 }
 
 async function sendMail(to, subject, html, text) {
+  if (smtpConfig.host && smtpConfig.user && smtpConfig.pass && smtpConfig.from) {
+    await sendSmtpMail({ to, subject, html, text });
+    console.log(`[mail smtp] ${subject} -> ${to}`);
+    return;
+  }
+
   await ensureDataDir();
   const mail = { to, subject, html, text, createdAt: nowIso() };
   await fs.appendFile(mailOutboxPath, `${JSON.stringify(mail)}\n`, 'utf8');
   console.log(`[mail outbox] ${subject} -> ${to}\n${text}`);
+}
+
+function encodeMailHeader(value) {
+  const text = String(value || '');
+  return /^[\x20-\x7e]*$/.test(text) ? text : `=?UTF-8?B?${Buffer.from(text, 'utf8').toString('base64')}?=`;
+}
+
+function foldBase64(value) {
+  return Buffer.from(String(value || ''), 'utf8').toString('base64').replace(/.{1,76}/g, '$&\r\n').trimEnd();
+}
+
+function dotStuff(message) {
+  return message.replace(/^\./gm, '..');
+}
+
+function formatAddress(address, name = '') {
+  return name ? `${encodeMailHeader(name)} <${address}>` : address;
+}
+
+function buildMimeMessage({ to, subject, html, text }) {
+  const boundary = `leaf-${crypto.randomBytes(12).toString('hex')}`;
+  return [
+    `From: ${formatAddress(smtpConfig.from, smtpConfig.fromName)}`,
+    `To: ${to}`,
+    `Subject: ${encodeMailHeader(subject)}`,
+    'MIME-Version: 1.0',
+    `Date: ${new Date().toUTCString()}`,
+    `Message-ID: <${crypto.randomBytes(16).toString('hex')}@leafmeasurement>`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    foldBase64(text),
+    `--${boundary}`,
+    'Content-Type: text/html; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    foldBase64(html),
+    `--${boundary}--`,
+    '',
+  ].join('\r\n');
+}
+
+function waitForSocket(socket) {
+  return new Promise((resolve, reject) => {
+    const done = () => {
+      socket.off('error', reject);
+      resolve(socket);
+    };
+    socket.once('connect', done);
+    socket.once('secureConnect', done);
+    socket.once('error', reject);
+  });
+}
+
+function writeSocket(socket, data) {
+  return new Promise((resolve, reject) => {
+    socket.write(data, (error) => (error ? reject(error) : resolve()));
+  });
+}
+
+async function sendSmtpMail({ to, subject, html, text }) {
+  let socket = smtpConfig.secure
+    ? tls.connect({
+      host: smtpConfig.host,
+      port: smtpConfig.port,
+      servername: smtpConfig.host,
+      rejectUnauthorized: smtpConfig.rejectUnauthorized,
+    })
+    : net.connect({ host: smtpConfig.host, port: smtpConfig.port });
+  socket.setTimeout(20000);
+  await waitForSocket(socket);
+
+  let buffer = '';
+  let responseLines = [];
+  const parseResponse = () => {
+    const parts = buffer.split(/\r?\n/);
+    buffer = parts.pop() || '';
+    for (const line of parts) {
+      if (!line) continue;
+      responseLines.push(line);
+      if (/^\d{3} /.test(line)) {
+        const lines = responseLines;
+        responseLines = [];
+        return { code: Number(line.slice(0, 3)), lines };
+      }
+    }
+    return null;
+  };
+  const readResponse = () => {
+    const parsed = parseResponse();
+    if (parsed) return Promise.resolve(parsed);
+    return new Promise((resolve, reject) => {
+      const onData = (chunk) => {
+        buffer += chunk.toString('utf8');
+        const response = parseResponse();
+        if (response) {
+          socket.off('data', onData);
+          socket.off('error', onError);
+          socket.off('timeout', onTimeout);
+          resolve(response);
+        }
+      };
+      const onError = (error) => {
+        socket.off('data', onData);
+        socket.off('timeout', onTimeout);
+        reject(error);
+      };
+      const onTimeout = () => {
+        socket.destroy();
+        onError(new Error('smtp_timeout'));
+      };
+      socket.on('data', onData);
+      socket.once('error', onError);
+      socket.once('timeout', onTimeout);
+    });
+  };
+  const command = async (line, expectedCodes) => {
+    await writeSocket(socket, `${line}\r\n`);
+    const response = await readResponse();
+    if (!expectedCodes.includes(response.code)) {
+      throw new Error(`smtp_${response.code}: ${response.lines.join(' | ')}`);
+    }
+    return response;
+  };
+
+  try {
+    let response = await readResponse();
+    if (response.code !== 220) throw new Error(`smtp_${response.code}: ${response.lines.join(' | ')}`);
+    response = await command('EHLO leafmeasurement.local', [250]);
+    if (!smtpConfig.secure && response.lines.some((line) => /STARTTLS/i.test(line))) {
+      await command('STARTTLS', [220]);
+      socket.removeAllListeners('data');
+      socket.removeAllListeners('error');
+      socket.removeAllListeners('timeout');
+      socket = tls.connect({
+        socket,
+        servername: smtpConfig.host,
+        rejectUnauthorized: smtpConfig.rejectUnauthorized,
+      });
+      socket.setTimeout(20000);
+      await waitForSocket(socket);
+      buffer = '';
+      responseLines = [];
+      await command('EHLO leafmeasurement.local', [250]);
+    }
+
+    await command('AUTH LOGIN', [334]);
+    await command(Buffer.from(smtpConfig.user, 'utf8').toString('base64'), [334]);
+    await command(Buffer.from(smtpConfig.pass, 'utf8').toString('base64'), [235]);
+    await command(`MAIL FROM:<${smtpConfig.from}>`, [250]);
+    await command(`RCPT TO:<${to}>`, [250, 251]);
+    await command('DATA', [354]);
+    await writeSocket(socket, `${dotStuff(buildMimeMessage({ to, subject, html, text }))}\r\n.\r\n`);
+    response = await readResponse();
+    if (response.code !== 250) throw new Error(`smtp_${response.code}: ${response.lines.join(' | ')}`);
+    await command('QUIT', [221]);
+  } finally {
+    socket.end();
+  }
 }
 
 async function sendVerifyMail(user, verifyToken) {
@@ -373,10 +720,10 @@ async function sendResetMail(user, resetToken) {
 }
 
 async function getAuth(request) {
+  const db = await readDb();
   const sessionJwt = parseCookies(request).get('lm_session');
   const payload = verifyJwt(sessionJwt);
-  if (!payload?.sid || !payload?.sub) return { db: await readDb(), user: null, session: null };
-  const db = await readDb();
+  if (!payload?.sid || !payload?.sub) return { db, user: null, session: null };
   const session = db.sessions.find((item) => item.id === payload.sid && item.userId === payload.sub);
   if (!session || isExpired(session.expiresAt) || session.tokenHash !== tokenHash(sessionJwt)) {
     return { db, user: null, session: null };
@@ -410,6 +757,14 @@ function findProjectForUser(db, projectId, userId) {
     throw error;
   }
   return project;
+}
+
+function requireProjectOwner(project, userId) {
+  if (project.ownerId !== userId) {
+    const error = new Error('forbidden');
+    error.status = 403;
+    throw error;
+  }
 }
 
 function projectSummary(db, project, user) {
@@ -493,7 +848,14 @@ async function handleRegister(request, response) {
   requirePassword(password);
 
   const result = await mutateDb(async (db) => {
-    if (db.users.some((user) => user.email === email)) {
+    const existingUser = db.users.find((user) => user.email === email);
+    if (existingUser && !existingUser.verified) {
+      const verifyToken = token();
+      db.verifyTokens = db.verifyTokens.filter((entry) => entry.userId !== existingUser.id);
+      db.verifyTokens.push({ tokenHash: tokenHash(verifyToken), userId: existingUser.id, expiresAt: expiresIn(48), createdAt: nowIso() });
+      return { user: existingUser, verifyToken, resent: true };
+    }
+    if (existingUser) {
       const error = new Error('email_already_registered');
       error.status = 409;
       throw error;
@@ -513,7 +875,27 @@ async function handleRegister(request, response) {
     return { user, verifyToken };
   });
   await sendVerifyMail(result.user, result.verifyToken);
-  sendJson(response, 201, { ok: true, user: publicUser(result.user), message: 'verification_mail_sent' });
+  sendJson(response, result.resent ? 200 : 201, {
+    ok: true,
+    user: publicUser(result.user),
+    message: result.resent ? 'verification_mail_resent' : 'verification_mail_sent',
+  });
+}
+
+async function handleResendVerification(request, response) {
+  const body = await readBody(request);
+  const email = normalizeEmail(body.email);
+  requireEmail(email);
+  const result = await mutateDb(async (db) => {
+    const user = db.users.find((item) => item.email === email);
+    if (!user || user.verified) return null;
+    const verifyToken = token();
+    db.verifyTokens = db.verifyTokens.filter((entry) => entry.userId !== user.id);
+    db.verifyTokens.push({ tokenHash: tokenHash(verifyToken), userId: user.id, expiresAt: expiresIn(48), createdAt: nowIso() });
+    return { user, verifyToken };
+  });
+  if (result) await sendVerifyMail(result.user, result.verifyToken);
+  sendJson(response, 200, { ok: true, message: 'verification_mail_sent_if_needed' });
 }
 
 async function handleLogin(request, response) {
@@ -621,6 +1003,60 @@ async function handleResetPassword(request, response) {
   sendJson(response, 200, { ok: true });
 }
 
+async function handleAccountUpdate(request, response) {
+  const auth = await getAuth(request);
+  const user = requireUser(auth);
+  const body = await readBody(request);
+  const currentPassword = String(body.currentPassword || '');
+  const requestedEmail = normalizeEmail(body.email || user.email);
+  const newPassword = String(body.newPassword || '');
+
+  requireEmail(requestedEmail);
+  if (!verifyPassword(currentPassword, user.passwordSalt, user.passwordHash)) {
+    const error = new Error('invalid_current_password');
+    error.status = 401;
+    throw error;
+  }
+  if (newPassword) requirePassword(newPassword);
+
+  const result = await mutateDb(async (db) => {
+    const storedUser = db.users.find((item) => item.id === user.id);
+    if (!storedUser) {
+      const error = new Error('user_not_found');
+      error.status = 404;
+      throw error;
+    }
+    const emailChanged = requestedEmail !== storedUser.email;
+    if (emailChanged && db.users.some((item) => item.id !== storedUser.id && item.email === requestedEmail)) {
+      const error = new Error('email_already_registered');
+      error.status = 409;
+      throw error;
+    }
+    let verifyToken = '';
+    if (emailChanged) {
+      storedUser.email = requestedEmail;
+      storedUser.verified = false;
+      delete storedUser.verifiedAt;
+      verifyToken = token();
+      db.verifyTokens = db.verifyTokens.filter((entry) => entry.userId !== storedUser.id);
+      db.verifyTokens.push({ tokenHash: tokenHash(verifyToken), userId: storedUser.id, expiresAt: expiresIn(48), createdAt: nowIso() });
+    }
+    if (newPassword) {
+      const passwordData = hashPassword(newPassword);
+      storedUser.passwordSalt = passwordData.salt;
+      storedUser.passwordHash = passwordData.hash;
+    }
+    return { user: storedUser, verifyToken, emailChanged };
+  });
+
+  if (result.verifyToken) await sendVerifyMail(result.user, result.verifyToken);
+  sendJson(response, 200, {
+    ok: true,
+    user: publicUser(result.user),
+    message: result.emailChanged ? 'profile_updated_verification_required' : 'profile_updated',
+  });
+}
+
 async function handleMe(request, response) {
   const auth = await getAuth(request);
   const projects = auth.user
@@ -683,6 +1119,49 @@ async function handleProject(request, response, projectId) {
   sendJson(response, 200, { ok: true, project: projectSummary(auth.db, project, user) });
 }
 
+async function handleDeleteProject(request, response, projectId) {
+  const auth = await getAuth(request);
+  const user = requireUser(auth);
+  const project = findProjectForUser(auth.db, projectId, user.id);
+  requireProjectOwner(project, user.id);
+
+  await mutateDb(async (db) => {
+    db.projects = db.projects.filter((item) => item.id !== projectId);
+    db.measurements = db.measurements.filter((item) => item.projectId !== projectId);
+    return null;
+  });
+
+  const base = path.normalize(path.join(archiveDir, 'projects', projectId));
+  const allowedRoot = path.normalize(path.join(archiveDir, 'projects'));
+  if (base.startsWith(allowedRoot)) await fs.rm(base, { recursive: true, force: true });
+  sendJson(response, 200, { ok: true });
+}
+
+async function handleRemoveProjectMember(request, response, projectId, memberId) {
+  const auth = await getAuth(request);
+  const user = requireUser(auth);
+  const project = findProjectForUser(auth.db, projectId, user.id);
+  requireProjectOwner(project, user.id);
+  if (memberId === project.ownerId) {
+    const error = new Error('cannot_remove_owner');
+    error.status = 400;
+    throw error;
+  }
+
+  const updated = await mutateDb(async (db) => {
+    const item = db.projects.find((candidate) => candidate.id === projectId);
+    if (!item?.memberIds.includes(memberId)) {
+      const error = new Error('member_not_found');
+      error.status = 404;
+      throw error;
+    }
+    item.memberIds = item.memberIds.filter((idValue) => idValue !== memberId);
+    return item;
+  });
+
+  sendJson(response, 200, { ok: true, project: projectSummary(await readDb(), updated, user) });
+}
+
 async function handleProjectMeasurements(request, response, projectId) {
   const auth = await getAuth(request);
   const user = requireUser(auth);
@@ -705,6 +1184,34 @@ async function handleMeasurementDetail(request, response, projectId, measurement
     throw error;
   }
   sendJson(response, 200, { ok: true, measurement: measurementDetail(measurement, auth.db) });
+}
+
+async function handleDeleteMeasurement(request, response, projectId, measurementId) {
+  const auth = await getAuth(request);
+  const user = requireUser(auth);
+  const project = findProjectForUser(auth.db, projectId, user.id);
+  requireProjectOwner(project, user.id);
+  let deleted = null;
+
+  await mutateDb(async (db) => {
+    const index = db.measurements.findIndex((item) => item.id === measurementId && item.projectId === projectId);
+    if (index === -1) {
+      const error = new Error('measurement_not_found');
+      error.status = 404;
+      throw error;
+    }
+    [deleted] = db.measurements.splice(index, 1);
+    return null;
+  });
+
+  const imagesRoot = path.normalize(path.join(archiveDir, 'projects', projectId, 'images'));
+  for (const filename of Object.values(deleted?.images || {})) {
+    if (!filename) continue;
+    const filePath = path.normalize(path.join(imagesRoot, filename));
+    if (filePath.startsWith(imagesRoot)) await fs.rm(filePath, { force: true });
+  }
+  await rewriteProjectCsv(await readDb(), projectId);
+  sendJson(response, 200, { ok: true });
 }
 
 async function handleMeasurementImage(request, response, projectId, measurementId, imageKey) {
@@ -737,12 +1244,48 @@ async function handleProjectCsv(request, response, projectId) {
   const auth = await getAuth(request);
   const user = requireUser(auth);
   findProjectForUser(auth.db, projectId, user.id);
+  await rewriteProjectCsv(auth.db, projectId);
   const { csvPath } = await ensureProjectArchive(projectId);
   response.writeHead(200, securityHeaders({
     'content-type': 'text/csv; charset=utf-8',
     'content-disposition': `attachment; filename="leaf-measurements-${projectId}.csv"`,
   }));
   createReadStream(csvPath).pipe(response);
+}
+
+async function handleProjectZip(request, response, projectId) {
+  const auth = await getAuth(request);
+  const user = requireUser(auth);
+  findProjectForUser(auth.db, projectId, user.id);
+  const projectArchive = await ensureProjectArchive(projectId);
+  const entries = [{
+    name: 'measurements.csv',
+    data: Buffer.from(projectCsvContent(auth.db, projectId), 'utf8'),
+  }];
+  const addedImages = new Set();
+  const imagesRoot = path.normalize(projectArchive.images);
+
+  for (const measurement of auth.db.measurements.filter((item) => item.projectId === projectId)) {
+    for (const filename of Object.values(measurement.images || {})) {
+      if (!filename || addedImages.has(filename)) continue;
+      const filePath = path.normalize(path.join(imagesRoot, filename));
+      if (!filePath.startsWith(imagesRoot)) continue;
+      try {
+        entries.push({ name: `images/${filename}`, data: await fs.readFile(filePath) });
+        addedImages.add(filename);
+      } catch {
+        // Missing image files should not block a CSV-first archive export.
+      }
+    }
+  }
+
+  const zip = createZip(entries);
+  response.writeHead(200, securityHeaders({
+    'content-type': 'application/zip',
+    'content-length': zip.length,
+    'content-disposition': `attachment; filename="leaf-measurements-${projectId}.zip"`,
+  }));
+  response.end(zip);
 }
 
 async function handleArchive(request, response) {
@@ -812,6 +1355,9 @@ async function serveStatic(request, response) {
   const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === '/') pathname = '/index.html';
+  if (['/login', '/signup', '/dashboard', '/archive', '/measurements', '/profile'].includes(pathname)) {
+    pathname = '/index.html';
+  }
   const filePath = path.normalize(path.join(publicDir, pathname));
   if (!filePath.startsWith(publicDir)) {
     response.writeHead(403, securityHeaders());
@@ -844,6 +1390,10 @@ async function route(request, response) {
     checkRateLimit(request, 'register', 8, 15 * 60 * 1000);
     return handleRegister(request, response);
   }
+  if (request.method === 'POST' && pathname === '/api/auth/resend-verification') {
+    checkRateLimit(request, 'resend-verification', 8, 15 * 60 * 1000);
+    return handleResendVerification(request, response);
+  }
   if (request.method === 'POST' && pathname === '/api/auth/login') {
     checkRateLimit(request, 'login', 20, 15 * 60 * 1000);
     return handleLogin(request, response);
@@ -858,24 +1408,33 @@ async function route(request, response) {
     checkRateLimit(request, 'reset-password', 12, 15 * 60 * 1000);
     return handleResetPassword(request, response);
   }
+  if (request.method === 'POST' && pathname === '/api/account') return handleAccountUpdate(request, response);
   if (request.method === 'POST' && pathname === '/api/projects') return handleCreateProject(request, response);
   if (request.method === 'POST' && pathname === '/api/projects/join') return handleJoinProject(request, response);
   if (request.method === 'POST' && pathname === '/api/archive') return handleArchive(request, response);
 
   const projectMatch = pathname.match(/^\/api\/projects\/([^/]+)$/);
   if (projectMatch && request.method === 'GET') return handleProject(request, response, projectMatch[1]);
+  if (projectMatch && request.method === 'DELETE') return handleDeleteProject(request, response, projectMatch[1]);
+
+  const memberMatch = pathname.match(/^\/api\/projects\/([^/]+)\/members\/([^/]+)$/);
+  if (memberMatch && request.method === 'DELETE') return handleRemoveProjectMember(request, response, memberMatch[1], memberMatch[2]);
 
   const measurementsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/measurements$/);
   if (measurementsMatch && request.method === 'GET') return handleProjectMeasurements(request, response, measurementsMatch[1]);
 
   const measurementMatch = pathname.match(/^\/api\/projects\/([^/]+)\/measurements\/([^/]+)$/);
   if (measurementMatch && request.method === 'GET') return handleMeasurementDetail(request, response, measurementMatch[1], measurementMatch[2]);
+  if (measurementMatch && request.method === 'DELETE') return handleDeleteMeasurement(request, response, measurementMatch[1], measurementMatch[2]);
 
   const imageMatch = pathname.match(/^\/api\/projects\/([^/]+)\/measurements\/([^/]+)\/images\/([^/]+)$/);
   if (imageMatch && request.method === 'GET') return handleMeasurementImage(request, response, imageMatch[1], imageMatch[2], imageMatch[3]);
 
   const csvMatch = pathname.match(/^\/api\/projects\/([^/]+)\/archive\.csv$/);
   if (csvMatch && request.method === 'GET') return handleProjectCsv(request, response, csvMatch[1]);
+
+  const zipMatch = pathname.match(/^\/api\/projects\/([^/]+)\/archive\.zip$/);
+  if (zipMatch && request.method === 'GET') return handleProjectZip(request, response, zipMatch[1]);
 
   if (request.method === 'GET' || request.method === 'HEAD') return serveStatic(request, response);
 

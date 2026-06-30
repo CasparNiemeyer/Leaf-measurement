@@ -1,6 +1,27 @@
 const $ = (id) => document.getElementById(id);
 
 const els = {
+  navLinks: [...document.querySelectorAll('[data-route]')],
+  navBrand: $('navBrand'),
+  navLogin: $('navLogin'),
+  navSignup: $('navSignup'),
+  navDashboard: $('navDashboard'),
+  navArchive: $('navArchive'),
+  navMeasurements: $('navMeasurements'),
+  navProfile: $('navProfile'),
+  platformPanel: $('platformPanel'),
+  fullPanel: $('fullPanel'),
+  croppedPanel: $('croppedPanel'),
+  resultPanel: $('resultPanel'),
+  maskPanel: $('maskPanel'),
+  metricsPanel: $('metricsPanel'),
+  settingsPanel: $('settingsPanel'),
+  platformTitle: $('platformTitle'),
+  croppedTitle: $('croppedTitle'),
+  resultTitle: $('resultTitle'),
+  maskTitle: $('maskTitle'),
+  metricsTitle: $('metricsTitle'),
+  settingsTitle: $('settingsTitle'),
   video: $('cameraVideo'),
   full: $('fullCanvas'),
   cropped: $('croppedCanvas'),
@@ -24,29 +45,46 @@ const els = {
   authForms: $('authForms'),
   logout: $('logoutButton'),
   loginForm: $('loginForm'),
+  forgotPasswordToggle: $('forgotPasswordToggle'),
   registerForm: $('registerForm'),
   resetRequestForm: $('resetRequestForm'),
   resetPasswordPanel: $('resetPasswordPanel'),
   resetPasswordButton: $('resetPasswordButton'),
   platformMessage: $('platformMessage'),
   projectArea: $('projectArea'),
+  profileArea: $('profileArea'),
+  profileForm: $('profileForm'),
+  profileEmail: $('profileEmail'),
+  profileCurrentPassword: $('profileCurrentPassword'),
+  profileNewPassword: $('profileNewPassword'),
+  profileEmailLabel: $('profileEmailLabel'),
+  profileVerifiedLabel: $('profileVerifiedLabel'),
+  profileEmailValue: $('profileEmailValue'),
+  profileVerifiedValue: $('profileVerifiedValue'),
   projectSelect: $('projectSelect'),
   createProjectForm: $('createProjectForm'),
-  joinProjectForm: $('joinProjectForm'),
   projectMeasurementCount: $('projectMeasurementCount'),
   projectLatestMeasurement: $('projectLatestMeasurement'),
   projectInviteLink: $('projectInviteLink'),
   copyInviteLink: $('copyInviteLink'),
   projectCsvLink: $('projectCsvLink'),
+  deleteProject: $('deleteProjectButton'),
   memberList: $('memberList'),
+  measurementBrowser: $('measurementBrowser'),
   refreshMeasurements: $('refreshMeasurements'),
   measurementList: $('measurementList'),
   measurementDetail: $('measurementDetail'),
+  greenAreaLabel: $('greenAreaLabel'),
+  convexHullLabel: $('convexHullLabel'),
+  damageLabel: $('damageLabel'),
+  measurementStatusLabel: $('measurementStatusLabel'),
   area: $('areaValue'),
   convex: $('convexValue'),
   damage: $('damageValue'),
   status: $('statusValue'),
 };
+
+const routes = new Set(['login', 'signup', 'dashboard', 'archive', 'measurements', 'profile']);
 
 const inputs = {
   language: $('languageSelect'),
@@ -96,6 +134,8 @@ const state = {
   activeProjectId: localStorage.getItem('leafActiveProjectId') || '',
   measurements: [],
   resetToken: new URLSearchParams(location.search).get('reset') || '',
+  page: 'measurements',
+  resetRequestVisible: false,
 };
 
 const FROZEN_ANALYSIS_INTERVAL_MS = 220;
@@ -103,8 +143,74 @@ const FROZEN_ANALYSIS_INTERVAL_MS = 220;
 const translations = {
   de: {
     title: 'Leaf Measurement',
+    login: 'Login',
+    signup: 'Registrieren',
+    loginTitle: 'Einloggen',
+    signupTitle: 'Account erstellen',
+    dashboard: 'Projekte & Archiv',
+    archivePage: 'Projekte & Archiv',
+    measurementsPage: 'Messungen',
+    profilePage: 'Profil',
+    platform: 'Projekte & Account',
+    authStatusLoggedOut: 'Nicht angemeldet',
+    authUnverified: 'E-Mail unbestätigt',
+    profileEmail: 'E-Mail',
+    profileVerification: 'Verifizierung',
+    verified: 'Bestätigt',
+    notVerified: 'Nicht bestätigt',
+    password: 'Passwort',
+    forgotPassword: 'Passwort vergessen?',
+    forgotPasswordTitle: 'Passwort vergessen',
+    sendResetLink: 'Reset-Link senden',
+    newPasswordTitle: 'Neues Passwort setzen',
+    newPassword: 'Neues Passwort',
+    savePassword: 'Passwort speichern',
+    account: 'Konto',
+    editAccount: 'Kontodaten bearbeiten',
+    currentPassword: 'Aktuelles Passwort',
+    save: 'Speichern',
+    logout: 'Logout',
+    project: 'Projekt',
+    activeProject: 'Aktives Projekt',
+    newProject: 'Neues Projekt',
+    create: 'Erstellen',
+    joinLinkPlaceholder: 'Join-Link einfügen',
+    join: 'Beitreten',
+    dashboardTitle: 'Dashboard',
+    latestMeasurement: 'Letzte Messung',
+    joinLink: 'Join-Link',
+    copyLink: 'Link kopieren',
+    projectCsv: 'Projekt-ZIP',
+    deleteProject: 'Projekt löschen',
+    deleteMember: 'Entfernen',
+    deleteMeasurement: 'Messung löschen',
+    confirmDeleteProject: 'Projekt "{name}" wirklich löschen? Alle Messungen und Bilder werden entfernt.',
+    confirmDeleteMember: '{email} wirklich aus dem Projekt entfernen?',
+    confirmDeleteMeasurement: 'Diese Messung wirklich löschen?',
+    members: 'Mitglieder',
+    owner: 'Owner',
+    member: 'Member',
+    browseMeasurements: 'Messungen browsen',
+    refresh: 'Aktualisieren',
+    chooseMeasurement: 'Wähle eine Messung aus.',
+    noProjectMeasurements: 'Noch keine Messungen im Projekt.',
+    archiveMeasurementHint: 'Archiviere eine Messung oder wähle einen anderen Projektkontext.',
+    leafAreaShort: 'Blatt',
+    createdBy: 'Erstellt von',
+    createdAt: 'Zeitpunkt',
+    measurement: 'Messung',
+    fullframe: 'Fullframe',
     cameraReady: 'Kamera: bereit',
+    cameraPrefix: 'Kamera',
+    cameraStateUnavailable: 'nicht verfügbar',
+    cameraStateStarting: 'startet',
+    cameraStateActive: 'aktiv',
+    cameraStateStopped: 'gestoppt',
+    cameraStateFrozen: 'eingefroren',
+    cameraStateImageLoaded: 'Bild geladen',
+    cameraError: 'Fehler ({detail})',
     defaultCamera: 'Standardkamera',
+    cameraFallback: 'Kamera {number}',
     findCameras: 'Kameras suchen',
     startCamera: 'Kamera starten',
     stop: 'Stop',
@@ -114,6 +220,11 @@ const translations = {
     damageMask: 'Schadensmaske',
     freeze: 'Freeze',
     live: 'Live',
+    toolDamage: 'Schaden',
+    toolCorrect: 'Korrekt',
+    toolExclude: 'Aus Fläche entfernen',
+    toolEraser: 'Radierer',
+    toolClear: 'Alles löschen',
     brushSize: 'Größe',
     measurements: 'Messwerte',
     greenArea: 'Grüne Fläche',
@@ -121,8 +232,12 @@ const translations = {
     damage: 'Schaden',
     status: 'Status',
     noImage: 'Noch kein Bild',
+    findingMarkers: 'Suche Marker',
+    noLeafDetected: 'Kein Blatt erkannt',
     archive: 'Archivieren',
-    downloadCsv: 'CSV herunterladen',
+    downloadCsv: 'ZIP herunterladen',
+    archived: 'Archiviert',
+    unknown: 'unbekannt',
     settings: 'Einstellungen',
     language: 'Sprache',
     darkMode: 'Dunkelmodus',
@@ -134,6 +249,9 @@ const translations = {
     analysisFps: 'Analyse-FPS',
     kernel: 'Kernelgröße',
     hsv: 'HSV Live-Grenzen',
+    hue: 'Hue',
+    saturation: 'Saturation',
+    value: 'Value',
     masks: 'Masken',
     manual: 'Manuelle Masken einrechnen',
     edge: 'Convex-Randschäden',
@@ -145,11 +263,122 @@ const translations = {
     drawBoundary: 'Fläche markieren',
     drawContours: 'Umrandung',
     drawHull: 'Convex Hull',
+    emailVerifiedMessage: 'E-Mail bestätigt. Du kannst dich jetzt einloggen.',
+    emailVerifyInvalid: 'Der Bestätigungslink ist ungültig, abgelaufen oder wurde schon benutzt. Registriere dieselbe E-Mail erneut, um eine frische Bestätigungsmail zu erzeugen.',
+    setNewPassword: 'Bitte setze ein neues Passwort.',
+    projectJoined: 'Projekt beigetreten.',
+    joinRequiresLogin: 'Bitte einloggen oder registrieren, um dem Projekt beizutreten.',
+    loggedIn: 'Eingeloggt.',
+    loginFailed: 'Login fehlgeschlagen: {error}',
+    accountCreated: 'Account erstellt. Bitte bestätige den Link in deiner E-Mail. Prüfe auch den Spam-Ordner.',
+    registerFailed: 'Registrierung fehlgeschlagen: {error}',
+    resetLinkSent: 'Falls der Account existiert, wurde ein Reset-Link per E-Mail versendet. Prüfe auch den Spam-Ordner.',
+    resetFailed: 'Reset fehlgeschlagen: {error}',
+    profileSaved: 'Profil gespeichert. Bei neuer E-Mail wurde ein Bestätigungslink versendet. Prüfe auch den Spam-Ordner.',
+    profileSaveFailed: 'Profil konnte nicht gespeichert werden: {error}',
+    passwordChanged: 'Passwort geändert. Bitte neu einloggen.',
+    passwordChangeFailed: 'Passwort konnte nicht geändert werden: {error}',
+    loggedOut: 'Ausgeloggt.',
+    projectCreated: 'Projekt erstellt.',
+    projectCreateFailed: 'Projekt konnte nicht erstellt werden: {error}',
+    projectDeleted: 'Projekt gelöscht.',
+    projectDeleteFailed: 'Projekt konnte nicht gelöscht werden: {error}',
+    memberRemoved: 'Mitglied entfernt.',
+    memberRemoveFailed: 'Mitglied konnte nicht entfernt werden: {error}',
+    measurementDeleted: 'Messung gelöscht.',
+    measurementDeleteFailed: 'Messung konnte nicht gelöscht werden: {error}',
+    joinFailed: 'Beitritt fehlgeschlagen: {error}',
+    inviteCopied: 'Join-Link kopiert.',
+    noArchiveImage: 'Kein Messbild zum Archivieren vorhanden',
+    loginProjectRequired: 'Bitte zuerst einloggen und ein Projekt wählen.',
+    archiveError: 'Fehler: {error}',
+    imageLoaded: 'Bild geladen',
+    errorInvalidOrigin: 'Diese Domain ist nicht als erlaubte Herkunft eingetragen.',
+    errorInvalidLogin: 'E-Mail oder Passwort ist falsch.',
+    errorEmailNotVerified: 'Bitte bestätige zuerst deine E-Mail-Adresse.',
+    errorAuthRequired: 'Bitte zuerst einloggen.',
+    errorEmailAlreadyRegistered: 'Diese E-Mail ist bereits registriert.',
+    errorInvalidCurrentPassword: 'Das aktuelle Passwort ist falsch.',
+    errorPasswordTooShort: 'Das Passwort muss mindestens 8 Zeichen lang sein.',
+    errorInvalidEmail: 'Bitte gib eine gültige E-Mail-Adresse ein.',
+    errorRateLimited: 'Zu viele Versuche. Bitte später erneut probieren.',
+    errorForbidden: 'Dafür brauchst du Owner-Rechte.',
+    errorCannotRemoveOwner: 'Der Owner kann nicht aus dem Projekt entfernt werden.',
+    errorMemberNotFound: 'Mitglied nicht gefunden.',
+    errorMeasurementNotFound: 'Messung nicht gefunden.',
+    errorProjectNotFound: 'Projekt nicht gefunden.',
+    errorUnknown: 'Unbekannter Fehler',
   },
   en: {
     title: 'Leaf Measurement',
+    login: 'Login',
+    signup: 'Sign up',
+    loginTitle: 'Sign in',
+    signupTitle: 'Create account',
+    dashboard: 'Projects & archive',
+    archivePage: 'Projects & archive',
+    measurementsPage: 'Measurements',
+    profilePage: 'Profile',
+    platform: 'Projects & account',
+    authStatusLoggedOut: 'Not signed in',
+    authUnverified: 'email not verified',
+    profileEmail: 'Email',
+    profileVerification: 'Verification',
+    verified: 'Verified',
+    notVerified: 'Not verified',
+    password: 'Password',
+    forgotPassword: 'Forgot password?',
+    forgotPasswordTitle: 'Forgot password',
+    sendResetLink: 'Send reset link',
+    newPasswordTitle: 'Set new password',
+    newPassword: 'New password',
+    savePassword: 'Save password',
+    account: 'Account',
+    editAccount: 'Edit account details',
+    currentPassword: 'Current password',
+    save: 'Save',
+    logout: 'Logout',
+    project: 'Project',
+    activeProject: 'Active project',
+    newProject: 'New project',
+    create: 'Create',
+    joinLinkPlaceholder: 'Paste join link',
+    join: 'Join',
+    dashboardTitle: 'Dashboard',
+    latestMeasurement: 'Latest measurement',
+    joinLink: 'Join link',
+    copyLink: 'Copy link',
+    projectCsv: 'Project ZIP',
+    deleteProject: 'Delete project',
+    deleteMember: 'Remove',
+    deleteMeasurement: 'Delete measurement',
+    confirmDeleteProject: 'Delete project "{name}"? All measurements and images will be removed.',
+    confirmDeleteMember: 'Remove {email} from this project?',
+    confirmDeleteMeasurement: 'Delete this measurement?',
+    members: 'Members',
+    owner: 'Owner',
+    member: 'Member',
+    browseMeasurements: 'Browse measurements',
+    refresh: 'Refresh',
+    chooseMeasurement: 'Select a measurement.',
+    noProjectMeasurements: 'No measurements in this project yet.',
+    archiveMeasurementHint: 'Archive a measurement or choose another project context.',
+    leafAreaShort: 'leaf',
+    createdBy: 'Created by',
+    createdAt: 'Time',
+    measurement: 'Measurement',
+    fullframe: 'Full frame',
     cameraReady: 'Camera: ready',
+    cameraPrefix: 'Camera',
+    cameraStateUnavailable: 'not available',
+    cameraStateStarting: 'starting',
+    cameraStateActive: 'active',
+    cameraStateStopped: 'stopped',
+    cameraStateFrozen: 'frozen',
+    cameraStateImageLoaded: 'image loaded',
+    cameraError: 'Error ({detail})',
     defaultCamera: 'Default camera',
+    cameraFallback: 'Camera {number}',
     findCameras: 'Find cameras',
     startCamera: 'Start camera',
     stop: 'Stop',
@@ -159,6 +388,11 @@ const translations = {
     damageMask: 'Damage mask',
     freeze: 'Freeze',
     live: 'Live',
+    toolDamage: 'Damage',
+    toolCorrect: 'Correct',
+    toolExclude: 'Remove from area',
+    toolEraser: 'Eraser',
+    toolClear: 'Clear all',
     brushSize: 'Size',
     measurements: 'Measurements',
     greenArea: 'Green area',
@@ -166,8 +400,12 @@ const translations = {
     damage: 'Damage',
     status: 'Status',
     noImage: 'No image yet',
+    findingMarkers: 'Finding markers',
+    noLeafDetected: 'No leaf detected',
     archive: 'Archive',
-    downloadCsv: 'Download CSV',
+    downloadCsv: 'Download ZIP',
+    archived: 'Archived',
+    unknown: 'unknown',
     settings: 'Settings',
     language: 'Language',
     darkMode: 'Dark mode',
@@ -179,6 +417,9 @@ const translations = {
     analysisFps: 'Analysis FPS',
     kernel: 'Kernel size',
     hsv: 'HSV live limits',
+    hue: 'Hue',
+    saturation: 'Saturation',
+    value: 'Value',
     masks: 'Masks',
     manual: 'Include manual masks',
     edge: 'Convex edge damage',
@@ -190,11 +431,63 @@ const translations = {
     drawBoundary: 'Show boundary',
     drawContours: 'Outline',
     drawHull: 'Convex hull',
+    emailVerifiedMessage: 'Email confirmed. You can sign in now.',
+    emailVerifyInvalid: 'The confirmation link is invalid, expired, or has already been used. Register the same email again to create a fresh confirmation email.',
+    setNewPassword: 'Please set a new password.',
+    projectJoined: 'Joined project.',
+    joinRequiresLogin: 'Please sign in or register to join this project.',
+    loggedIn: 'Signed in.',
+    loginFailed: 'Login failed: {error}',
+    accountCreated: 'Account created. Please confirm the link in your email. Also check your spam folder.',
+    registerFailed: 'Registration failed: {error}',
+    resetLinkSent: 'If the account exists, a reset link was sent by email. Also check your spam folder.',
+    resetFailed: 'Reset failed: {error}',
+    profileSaved: 'Profile saved. If you changed the email address, a confirmation link was sent. Also check your spam folder.',
+    profileSaveFailed: 'Profile could not be saved: {error}',
+    passwordChanged: 'Password changed. Please sign in again.',
+    passwordChangeFailed: 'Password could not be changed: {error}',
+    loggedOut: 'Signed out.',
+    projectCreated: 'Project created.',
+    projectCreateFailed: 'Project could not be created: {error}',
+    projectDeleted: 'Project deleted.',
+    projectDeleteFailed: 'Project could not be deleted: {error}',
+    memberRemoved: 'Member removed.',
+    memberRemoveFailed: 'Member could not be removed: {error}',
+    measurementDeleted: 'Measurement deleted.',
+    measurementDeleteFailed: 'Measurement could not be deleted: {error}',
+    joinFailed: 'Join failed: {error}',
+    inviteCopied: 'Join link copied.',
+    noArchiveImage: 'No measurement image available to archive',
+    loginProjectRequired: 'Please sign in and select a project first.',
+    archiveError: 'Error: {error}',
+    imageLoaded: 'Image loaded',
+    errorInvalidOrigin: 'This domain is not configured as an allowed origin.',
+    errorInvalidLogin: 'Email or password is incorrect.',
+    errorEmailNotVerified: 'Please confirm your email address first.',
+    errorAuthRequired: 'Please sign in first.',
+    errorEmailAlreadyRegistered: 'This email is already registered.',
+    errorInvalidCurrentPassword: 'The current password is incorrect.',
+    errorPasswordTooShort: 'The password must be at least 8 characters long.',
+    errorInvalidEmail: 'Please enter a valid email address.',
+    errorRateLimited: 'Too many attempts. Please try again later.',
+    errorForbidden: 'Owner permissions are required.',
+    errorCannotRemoveOwner: 'The owner cannot be removed from the project.',
+    errorMemberNotFound: 'Member not found.',
+    errorMeasurementNotFound: 'Measurement not found.',
+    errorProjectNotFound: 'Project not found.',
+    errorUnknown: 'Unknown error',
   },
 };
 
-function tr(key) {
-  return translations[inputs.language?.value || 'de']?.[key] || translations.de[key] || key;
+function tr(key, values = {}) {
+  const text = translations[inputs.language?.value || 'de']?.[key] || translations.de[key] || key;
+  return Object.entries(values).reduce((result, [name, value]) => result.replaceAll(`{${name}}`, value), text);
+}
+
+function errorText(error) {
+  const code = String(error?.code || error?.message || '').replace(/[^a-z0-9_]/gi, '');
+  const key = code ? `error${code.split('_').map((part) => part ? part[0].toUpperCase() + part.slice(1) : '').join('')}` : '';
+  return key && tr(key) !== key ? tr(key) : (error?.message || tr('errorUnknown'));
 }
 
 function setLabelText(label, text) {
@@ -202,10 +495,23 @@ function setLabelText(label, text) {
   label.childNodes[0].nodeValue = `${text} `;
 }
 
+function setText(selector, text) {
+  const element = typeof selector === 'string' ? document.querySelector(selector) : selector;
+  if (element) element.textContent = text;
+}
+
 function applyLanguage() {
   document.documentElement.lang = inputs.language.value;
   document.title = tr('title');
+  els.navBrand.textContent = tr('title');
+  els.navLogin.textContent = tr('login');
+  els.navSignup.textContent = tr('signup');
+  els.navDashboard.textContent = tr('dashboard');
+  els.navArchive.textContent = tr('archivePage');
+  els.navMeasurements.textContent = tr('measurementsPage');
+  els.navProfile.textContent = tr('profilePage');
   document.querySelector('h1').textContent = tr('title');
+  els.platformTitle.textContent = tr('platform');
   els.cameraStatus.textContent = tr('cameraReady');
   els.cameraSelect.options[0].textContent = tr('defaultCamera');
   els.refreshCameras.textContent = tr('findCameras');
@@ -213,19 +519,68 @@ function applyLanguage() {
   els.stopCamera.textContent = tr('stop');
   els.fullscreen.title = tr('fullscreen');
   els.freeze.textContent = state.frozen ? tr('live') : tr('freeze');
+  document.querySelector('[data-tool="damage"]').title = tr('toolDamage');
+  document.querySelector('[data-tool="correct"]').title = tr('toolCorrect');
+  document.querySelector('[data-tool="exclude"]').title = tr('toolExclude');
+  document.querySelector('[data-tool="eraser"]').title = tr('toolEraser');
+  els.clearMasks.title = tr('toolClear');
   document.querySelector('.tool-row .inline').childNodes[0].nodeValue = `${tr('brushSize')} `;
-  document.querySelectorAll('.panel h2')[0].textContent = tr('cropped');
-  document.querySelectorAll('.panel h2')[1].textContent = tr('result');
-  document.querySelectorAll('.panel h2')[2].textContent = tr('damageMask');
-  document.querySelectorAll('.panel h2')[3].textContent = tr('measurements');
-  document.querySelectorAll('.metrics dt')[0].textContent = tr('greenArea');
-  document.querySelectorAll('.metrics dt')[1].textContent = tr('convexHull');
-  document.querySelectorAll('.metrics dt')[2].textContent = tr('damage');
-  document.querySelectorAll('.metrics dt')[3].textContent = tr('status');
+  els.croppedTitle.textContent = tr('cropped');
+  els.resultTitle.textContent = tr('result');
+  els.maskTitle.textContent = tr('damageMask');
+  els.metricsTitle.textContent = tr('measurements');
+  els.greenAreaLabel.textContent = tr('greenArea');
+  els.convexHullLabel.textContent = tr('convexHull');
+  els.damageLabel.textContent = tr('damage');
+  els.measurementStatusLabel.textContent = tr('status');
+  els.profileEmailLabel.textContent = tr('profileEmail');
+  els.profileVerifiedLabel.textContent = tr('profileVerification');
   if (!state.lastMeasurement) els.status.textContent = tr('noImage');
   els.archive.textContent = tr('archive');
   els.csv.textContent = tr('downloadCsv');
-  document.querySelector('.settings h2').textContent = tr('settings');
+  els.settingsTitle.textContent = tr('settings');
+
+  setText('#loginForm h3', tr('login'));
+  setLabelText(document.querySelector('#loginEmail')?.closest('label'), tr('profileEmail'));
+  setLabelText(document.querySelector('#loginPassword')?.closest('label'), tr('password'));
+  setText('#loginForm button[type="submit"]', tr('loginTitle'));
+  els.forgotPasswordToggle.textContent = tr('forgotPassword');
+  setText('#registerForm h3', tr('signup'));
+  setLabelText(document.querySelector('#registerEmail')?.closest('label'), tr('profileEmail'));
+  setLabelText(document.querySelector('#registerPassword')?.closest('label'), tr('password'));
+  setText('#registerForm button[type="submit"]', tr('signupTitle'));
+  setText('#resetRequestForm h3', tr('forgotPasswordTitle'));
+  setLabelText(document.querySelector('#resetEmail')?.closest('label'), tr('profileEmail'));
+  setText('#resetRequestForm button[type="submit"]', tr('sendResetLink'));
+  setText('#resetPasswordPanel h3', tr('newPasswordTitle'));
+  setLabelText(document.querySelector('#newPassword')?.closest('label'), tr('newPassword'));
+  els.resetPasswordButton.textContent = tr('savePassword');
+
+  setText('.profile-summary h3', tr('account'));
+  setText('#logoutButton', tr('logout'));
+  setText('#profileForm h3', tr('editAccount'));
+  setLabelText(els.profileEmail?.closest('label'), tr('profileEmail'));
+  setLabelText(els.profileCurrentPassword?.closest('label'), tr('currentPassword'));
+  setLabelText(els.profileNewPassword?.closest('label'), tr('newPassword'));
+  setText('#profileForm button[type="submit"]', tr('save'));
+
+  setText('#projectArea .auth-box:nth-child(1) h3', tr('project'));
+  setLabelText(els.projectSelect?.closest('label'), tr('activeProject'));
+  $('projectName').placeholder = tr('newProject');
+  setText('#createProjectForm button[type="submit"]', tr('create'));
+  setText('#projectArea .auth-box:nth-child(2) h3', tr('dashboardTitle'));
+  const dashboardLabels = document.querySelectorAll('#projectArea .auth-box:nth-child(2) .metrics dt');
+  setText(dashboardLabels[0], tr('measurements'));
+  setText(dashboardLabels[1], tr('latestMeasurement'));
+  setLabelText(els.projectInviteLink?.closest('label'), tr('joinLink'));
+  els.copyInviteLink.textContent = tr('copyLink');
+  els.projectCsvLink.textContent = tr('projectCsv');
+  els.deleteProject.textContent = tr('deleteProject');
+  setText('.members-box h3', tr('members'));
+  setText('#measurementBrowser h3', tr('browseMeasurements'));
+  els.refreshMeasurements.textContent = tr('refresh');
+  if (!state.measurements.length) renderMeasurementList();
+
   const fields = document.querySelectorAll('.settings .field');
   setLabelText(fields[0], tr('language'));
   setLabelText(fields[1], tr('image'));
@@ -249,6 +604,95 @@ function applyLanguage() {
   document.querySelectorAll('.settings h3')[0].textContent = tr('hsv');
   document.querySelectorAll('.settings h3')[1].textContent = tr('masks');
   document.querySelectorAll('.settings h3')[2].textContent = tr('display');
+  setLabelText(document.querySelector('#hueRange')?.closest('label'), tr('hue'));
+  setLabelText(document.querySelector('#satRange')?.closest('label'), tr('saturation'));
+  setLabelText(document.querySelector('#valRange')?.closest('label'), tr('value'));
+  renderAccount();
+  renderProfile();
+}
+
+function routeFromLocation() {
+  const path = location.pathname.replace(/^\/+/, '').split('/')[0] || '';
+  if (path === 'dashboard') return 'archive';
+  if (routes.has(path)) return path;
+  if (new URLSearchParams(location.search).get('reset')) return 'login';
+  if (new URLSearchParams(location.search).get('verify')) return 'login';
+  if (new URLSearchParams(location.search).get('join')) return state.user ? 'archive' : 'login';
+  return state.user ? 'archive' : 'login';
+}
+
+function navigate(page, replace = false) {
+  const target = page === 'dashboard' ? 'archive' : (routes.has(page) ? page : 'measurements');
+  const url = `/${target}${location.search && (target === 'login' || target === 'archive') ? location.search : ''}`;
+  if (replace) history.replaceState(null, '', url);
+  else history.pushState(null, '', url);
+  setPage(target);
+}
+
+function showOnly(elements) {
+  const all = [
+    els.platformPanel,
+    els.fullPanel,
+    els.croppedPanel,
+    els.resultPanel,
+    els.maskPanel,
+    els.metricsPanel,
+    els.settingsPanel,
+  ];
+  for (const element of all) element?.classList.add('page-hidden');
+  for (const element of elements) element?.classList.remove('page-hidden');
+}
+
+function setPage(page = routeFromLocation()) {
+  const protectedPage = ['dashboard', 'archive', 'measurements', 'profile'].includes(page);
+  if (protectedPage && !state.user) {
+    page = 'login';
+    if (location.pathname !== '/login') {
+      history.replaceState(null, '', `/login${location.search}`);
+    }
+  }
+  if (page === 'dashboard') page = 'archive';
+  if (page === 'archive' && location.pathname === '/dashboard') {
+    history.replaceState(null, '', '/archive');
+  }
+  if (state.user && ['login', 'signup'].includes(page)) {
+    page = 'archive';
+    if (location.pathname !== '/archive') {
+      history.replaceState(null, '', '/archive');
+    }
+  }
+  state.page = page;
+  document.body.dataset.page = page;
+  els.navLinks.forEach((link) => link.classList.toggle('active', link.dataset.route === page));
+  els.navDashboard.classList.add('hidden');
+  els.navArchive.classList.toggle('hidden', !state.user);
+  els.navMeasurements.classList.toggle('hidden', !state.user);
+  els.navProfile.classList.toggle('hidden', !state.user);
+  els.navLogin.classList.toggle('hidden', Boolean(state.user));
+  els.navSignup.classList.toggle('hidden', Boolean(state.user));
+
+  els.authForms.classList.toggle('hidden', !['login', 'signup'].includes(page));
+  els.loginForm.classList.toggle('hidden', page !== 'login');
+  els.resetRequestForm.classList.toggle('hidden', page !== 'login' || !state.resetRequestVisible);
+  els.registerForm.classList.toggle('hidden', page !== 'signup');
+  els.projectArea.classList.toggle('hidden', page !== 'archive' || !state.user);
+  els.profileArea.classList.toggle('hidden', page !== 'profile' || !state.user);
+  els.measurementBrowser.classList.toggle('hidden', page !== 'archive');
+
+  if (page === 'login' || page === 'signup') {
+    els.platformTitle.textContent = page === 'login' ? tr('loginTitle') : tr('signupTitle');
+    showOnly([els.platformPanel]);
+  } else if (page === 'archive') {
+    els.platformTitle.textContent = tr('archivePage');
+    showOnly([els.platformPanel]);
+    if (state.user && activeProject()) refreshMeasurements().catch((error) => setPlatformMessage(errorText(error)));
+  } else if (page === 'profile') {
+    els.platformTitle.textContent = tr('profilePage');
+    showOnly([els.platformPanel]);
+    renderProfile();
+  } else {
+    showOnly([els.fullPanel, els.croppedPanel, els.resultPanel, els.maskPanel, els.metricsPanel, els.settingsPanel]);
+  }
 }
 
 function numberValue(input, fallback) {
@@ -317,7 +761,10 @@ async function api(path, options = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.ok === false) {
-    throw new Error(data.error || `HTTP ${response.status}`);
+    const error = new Error(data.error || `HTTP ${response.status}`);
+    error.code = data.error || '';
+    error.status = response.status;
+    throw error;
   }
   return data;
 }
@@ -336,6 +783,10 @@ function formatDate(iso) {
 
 function activeProject() {
   return state.projects.find((project) => project.id === state.activeProjectId) || state.projects[0] || null;
+}
+
+function isProjectOwner(project = activeProject()) {
+  return Boolean(project && state.user && project.ownerId === state.user.id);
 }
 
 function extractInviteToken(value) {
@@ -364,20 +815,22 @@ async function refreshAccount() {
 
 function renderAccount() {
   const loggedIn = Boolean(state.user);
-  els.authForms.classList.toggle('hidden', loggedIn);
   els.logout.classList.toggle('hidden', !loggedIn);
-  els.projectArea.classList.toggle('hidden', !loggedIn);
   els.authStatus.textContent = loggedIn
     ? `${state.user.email}${state.user.verified ? '' : ' (E-Mail unbestätigt)'}`
     : 'Nicht angemeldet';
   els.archive.disabled = !loggedIn || !activeProject();
-  if (!loggedIn) return;
+  if (!loggedIn) {
+    setPage(routeFromLocation());
+    return;
+  }
 
   els.projectSelect.replaceChildren();
   for (const project of state.projects) {
     els.projectSelect.add(new Option(project.name, project.id, false, project.id === state.activeProjectId));
   }
   renderProjectDashboard();
+  setPage(routeFromLocation());
 }
 
 function renderProjectDashboard() {
@@ -387,29 +840,57 @@ function renderProjectDashboard() {
     els.projectLatestMeasurement.textContent = '-';
     els.projectInviteLink.value = '';
     els.projectCsvLink.href = '#';
+    els.deleteProject.disabled = true;
+    els.deleteProject.classList.add('hidden');
     els.csv.href = '#';
     els.memberList.replaceChildren();
     return;
   }
+  const owner = isProjectOwner(project);
   els.projectMeasurementCount.textContent = String(project.measurementCount ?? 0);
   els.projectLatestMeasurement.textContent = formatDate(project.latestMeasurementAt);
   els.projectInviteLink.value = project.inviteUrl || '';
-  els.projectCsvLink.href = `/api/projects/${project.id}/archive.csv`;
-  els.csv.href = `/api/projects/${project.id}/archive.csv`;
+  els.projectCsvLink.href = `/api/projects/${project.id}/archive.zip`;
+  els.csv.href = `/api/projects/${project.id}/archive.zip`;
+  els.deleteProject.disabled = !owner;
+  els.deleteProject.classList.toggle('hidden', !owner);
   els.memberList.replaceChildren(...(project.members || []).map((member) => {
     const li = document.createElement('li');
     const name = document.createElement('span');
+    name.className = 'member-name';
+    name.title = member.email;
     name.textContent = member.email;
     const role = document.createElement('span');
     role.className = 'member-role';
     role.textContent = member.role === 'owner' ? 'Owner' : 'Member';
-    li.append(name, role);
+    const meta = document.createElement('span');
+    meta.className = 'member-actions';
+    meta.append(role);
+    if (owner && member.role !== 'owner') {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'button danger small';
+      remove.textContent = tr('deleteMember');
+      remove.addEventListener('click', () => removeMember(member));
+      meta.append(remove);
+    }
+    li.append(name, meta);
     return li;
   }));
 }
 
+function renderProfile() {
+  if (!state.user) return;
+  els.profileEmail.value = state.user.email || '';
+  els.profileCurrentPassword.value = '';
+  els.profileNewPassword.value = '';
+  els.profileEmailValue.textContent = state.user.email || '-';
+  els.profileVerifiedValue.textContent = state.user.verified ? tr('verified') : tr('notVerified');
+}
+
 function renderMeasurementList() {
   els.measurementList.replaceChildren();
+  const owner = isProjectOwner();
   if (!state.measurements.length) {
     const li = document.createElement('li');
     li.className = 'hint';
@@ -430,7 +911,17 @@ function renderMeasurementList() {
       <span class="measurement-meta">${measurement.userEmail || ''} · ${Number(measurement.greenArea || 0).toFixed(3)} cm² Blatt · ${Number(measurement.damageArea || 0).toFixed(3)} cm² Schaden</span>
     `;
     button.addEventListener('click', () => selectMeasurement(measurement.id, button));
-    li.append(button);
+    if (owner) {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'button danger small measurement-delete';
+      remove.textContent = tr('deleteMeasurement');
+      remove.addEventListener('click', () => deleteMeasurement(measurement));
+      li.className = 'measurement-list-item';
+      li.append(button, remove);
+    } else {
+      li.append(button);
+    }
     els.measurementList.append(li);
   }
 }
@@ -461,8 +952,12 @@ function renderMeasurementDetail(measurement) {
     ['Zeitpunkt', formatDate(measurement.createdAt)],
   ];
   const imageLabels = { full: 'Fullframe', cropped: 'Cropped', result: 'Ergebnis', mask: 'Schadensmaske' };
+  const ownerAction = isProjectOwner() ? `<button id="deleteSelectedMeasurement" class="button danger small" type="button">${tr('deleteMeasurement')}</button>` : '';
   els.measurementDetail.innerHTML = `
-    <h3>Messung ${formatDate(measurement.createdAt)}</h3>
+    <div class="detail-head">
+      <h3>Messung ${formatDate(measurement.createdAt)}</h3>
+      ${ownerAction}
+    </div>
     <dl class="metrics compact">
       ${stats.map(([key, value]) => `<div><dt>${key}</dt><dd>${value}</dd></div>`).join('')}
     </dl>
@@ -475,6 +970,55 @@ function renderMeasurementDetail(measurement) {
       `).join('')}
     </div>
   `;
+  document.getElementById('deleteSelectedMeasurement')?.addEventListener('click', () => deleteMeasurement(measurement));
+}
+
+async function removeMember(member) {
+  const project = activeProject();
+  if (!project || !member) return;
+  if (!window.confirm(tr('confirmDeleteMember', { email: member.email }))) return;
+  try {
+    await api(`/api/projects/${project.id}/members/${member.id}`, { method: 'DELETE', body: {} });
+    setPlatformMessage(tr('memberRemoved'));
+    await refreshAccount();
+  } catch (error) {
+    setPlatformMessage(tr('memberRemoveFailed', { error: errorText(error) }));
+  }
+}
+
+async function deleteMeasurement(measurement) {
+  const project = activeProject();
+  if (!project || !measurement) return;
+  if (!window.confirm(tr('confirmDeleteMeasurement'))) return;
+  try {
+    await api(`/api/projects/${project.id}/measurements/${measurement.id}`, { method: 'DELETE', body: {} });
+    setPlatformMessage(tr('measurementDeleted'));
+    els.measurementDetail.innerHTML = `<p class="hint">${tr('chooseMeasurement')}</p>`;
+    await refreshAccount();
+    await refreshMeasurements();
+  } catch (error) {
+    setPlatformMessage(tr('measurementDeleteFailed', { error: errorText(error) }));
+  }
+}
+
+async function deleteProject() {
+  const project = activeProject();
+  if (!project) return;
+  if (!window.confirm(tr('confirmDeleteProject', { name: project.name }))) return;
+  try {
+    await api(`/api/projects/${project.id}`, { method: 'DELETE', body: {} });
+    setPlatformMessage(tr('projectDeleted'));
+    if (state.activeProjectId === project.id) {
+      state.activeProjectId = '';
+      localStorage.removeItem('leafActiveProjectId');
+    }
+    state.measurements = [];
+    await refreshAccount();
+    renderMeasurementList();
+    navigate('archive', true);
+  } catch (error) {
+    setPlatformMessage(tr('projectDeleteFailed', { error: errorText(error) }));
+  }
 }
 
 async function handleUrlTokens() {
@@ -482,27 +1026,31 @@ async function handleUrlTokens() {
   const verifyToken = params.get('verify');
   const joinToken = params.get('join');
   if (verifyToken) {
-    await api('/api/auth/verify', { method: 'POST', body: { token: verifyToken } });
-    setPlatformMessage('E-Mail bestätigt. Du kannst dich jetzt einloggen.');
-    history.replaceState(null, '', location.pathname);
+    try {
+      await api('/api/auth/verify', { method: 'POST', body: { token: verifyToken } });
+      setPlatformMessage(tr('emailVerifiedMessage'));
+    } catch (error) {
+      setPlatformMessage(tr('emailVerifyInvalid'));
+    } finally {
+      history.replaceState(null, '', '/login');
+    }
   }
   if (state.resetToken) {
     els.resetPasswordPanel.classList.remove('hidden');
-    setPlatformMessage('Bitte setze ein neues Passwort.');
+    setPlatformMessage(tr('setNewPassword'));
   }
   if (joinToken) {
     await refreshAccount();
     if (state.user) {
       await api('/api/projects/join', { method: 'POST', body: { token: joinToken } });
-      setPlatformMessage('Projekt beigetreten.');
-      history.replaceState(null, '', location.pathname);
+      setPlatformMessage(tr('projectJoined'));
+      history.replaceState(null, '', '/archive');
       await refreshAccount();
     } else {
-      setPlatformMessage('Bitte einloggen oder registrieren, um dem Projekt beizutreten.');
+      setPlatformMessage(tr('joinRequiresLogin'));
     }
   }
 }
-
 function setStatus(text) {
   const prefix = inputs.language.value === 'en' ? 'Camera' : 'Kamera';
   els.cameraStatus.textContent = `${prefix}: ${text}`;
@@ -1292,6 +1840,18 @@ async function archiveCurrent() {
 }
 
 function setupEvents() {
+  els.navLinks.forEach((link) => {
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      navigate(link.dataset.route);
+    });
+  });
+  window.addEventListener('popstate', () => setPage(routeFromLocation()));
+  els.forgotPasswordToggle.addEventListener('click', () => {
+    state.resetRequestVisible = !state.resetRequestVisible;
+    if (state.resetRequestVisible && !$('resetEmail').value) $('resetEmail').value = $('loginEmail').value;
+    setPage('login');
+  });
   els.loginForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
@@ -1302,10 +1862,11 @@ function setupEvents() {
           password: $('loginPassword').value,
         },
       });
-      setPlatformMessage('Eingeloggt.');
+      setPlatformMessage(tr('loggedIn'));
       await refreshAccount();
+      navigate('archive', true);
     } catch (error) {
-      setPlatformMessage(`Login fehlgeschlagen: ${error.message}`);
+      setPlatformMessage(tr('loginFailed', { error: errorText(error) }));
     }
   });
   els.registerForm.addEventListener('submit', async (event) => {
@@ -1318,9 +1879,10 @@ function setupEvents() {
           password: $('registerPassword').value,
         },
       });
-      setPlatformMessage('Account erstellt. Bitte E-Mail-Link bestätigen. Lokal liegt die Mail in data/mail-outbox.jsonl.');
+      setPlatformMessage(tr('accountCreated'));
+      navigate('login', true);
     } catch (error) {
-      setPlatformMessage(`Registrierung fehlgeschlagen: ${error.message}`);
+      setPlatformMessage(tr('registerFailed', { error: errorText(error) }));
     }
   });
   els.resetRequestForm.addEventListener('submit', async (event) => {
@@ -1330,9 +1892,27 @@ function setupEvents() {
         method: 'POST',
         body: { email: $('resetEmail').value },
       });
-      setPlatformMessage('Falls der Account existiert, wurde ein Reset-Link erzeugt. Lokal liegt er in data/mail-outbox.jsonl.');
+      setPlatformMessage(tr('resetLinkSent'));
     } catch (error) {
-      setPlatformMessage(`Reset fehlgeschlagen: ${error.message}`);
+      setPlatformMessage(tr('resetFailed', { error: errorText(error) }));
+    }
+  });
+  els.profileForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await api('/api/account', {
+        method: 'POST',
+        body: {
+          email: els.profileEmail.value,
+          currentPassword: els.profileCurrentPassword.value,
+          newPassword: els.profileNewPassword.value,
+        },
+      });
+      await refreshAccount();
+      setPage('profile');
+      setPlatformMessage(tr('profileSaved'));
+    } catch (error) {
+      setPlatformMessage(tr('profileSaveFailed', { error: errorText(error) }));
     }
   });
   els.resetPasswordButton.addEventListener('click', async () => {
@@ -1344,9 +1924,9 @@ function setupEvents() {
       state.resetToken = '';
       els.resetPasswordPanel.classList.add('hidden');
       history.replaceState(null, '', location.pathname);
-      setPlatformMessage('Passwort geändert. Bitte neu einloggen.');
+      setPlatformMessage(tr('passwordChanged'));
     } catch (error) {
-      setPlatformMessage(`Passwort konnte nicht geändert werden: ${error.message}`);
+      setPlatformMessage(tr('passwordChangeFailed', { error: errorText(error) }));
     }
   });
   els.logout.addEventListener('click', async () => {
@@ -1356,7 +1936,8 @@ function setupEvents() {
     state.measurements = [];
     renderAccount();
     renderMeasurementList();
-    setPlatformMessage('Ausgeloggt.');
+    setPlatformMessage(tr('loggedOut'));
+    navigate('login', true);
   });
   els.createProjectForm.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -1368,28 +1949,14 @@ function setupEvents() {
       state.activeProjectId = result.project.id;
       localStorage.setItem('leafActiveProjectId', state.activeProjectId);
       $('projectName').value = '';
-      setPlatformMessage('Projekt erstellt.');
+      setPlatformMessage(tr('projectCreated'));
       await refreshAccount();
+      navigate('archive', true);
     } catch (error) {
-      setPlatformMessage(`Projekt konnte nicht erstellt werden: ${error.message}`);
+      setPlatformMessage(tr('projectCreateFailed', { error: errorText(error) }));
     }
   });
-  els.joinProjectForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    try {
-      const result = await api('/api/projects/join', {
-        method: 'POST',
-        body: { token: extractInviteToken($('joinLinkInput').value) },
-      });
-      state.activeProjectId = result.project.id;
-      localStorage.setItem('leafActiveProjectId', state.activeProjectId);
-      $('joinLinkInput').value = '';
-      setPlatformMessage('Projekt beigetreten.');
-      await refreshAccount();
-    } catch (error) {
-      setPlatformMessage(`Beitritt fehlgeschlagen: ${error.message}`);
-    }
-  });
+  els.deleteProject.addEventListener('click', deleteProject);
   els.projectSelect.addEventListener('change', async () => {
     state.activeProjectId = els.projectSelect.value;
     localStorage.setItem('leafActiveProjectId', state.activeProjectId);
@@ -1399,7 +1966,7 @@ function setupEvents() {
   els.copyInviteLink.addEventListener('click', async () => {
     if (!els.projectInviteLink.value) return;
     await navigator.clipboard?.writeText(els.projectInviteLink.value);
-    setPlatformMessage('Join-Link kopiert.');
+    setPlatformMessage(tr('inviteCopied'));
   });
   els.refreshMeasurements.addEventListener('click', refreshMeasurements);
   els.refreshCameras.addEventListener('click', refreshCameras);
@@ -1410,6 +1977,7 @@ function setupEvents() {
   inputs.language.addEventListener('change', () => {
     localStorage.setItem('leafLanguage', inputs.language.value);
     applyLanguage();
+    setPage(state.page);
   });
   els.fullscreen.addEventListener('click', () => els.drawStage.classList.toggle('fullscreen'));
   els.clearMasks.addEventListener('click', () => {
@@ -1479,9 +2047,11 @@ async function init() {
   try {
     await handleUrlTokens();
     await refreshAccount();
+    setPage(routeFromLocation());
   } catch (error) {
-    setPlatformMessage(error.message);
+    setPlatformMessage(errorText(error));
     await refreshAccount().catch(() => {});
+    setPage(routeFromLocation());
   }
   await refreshCameras();
   requestAnimationFrame(loop);
