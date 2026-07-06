@@ -80,7 +80,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -260,11 +261,13 @@ body[data-page="signup"] #resetPasswordPanel {
 
 .profile-area {
   display: grid;
-  grid-template-columns: minmax(300px, 440px) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
 }
 
 .profile-summary {
+  display: grid;
+  gap: 10px;
   align-self: start;
 }
 
@@ -418,6 +421,22 @@ body[data-page="signup"] #resetPasswordPanel {
   padding: 12px;
 }
 
+.measurement-notes {
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.measurement-notes h4 {
+  margin: 0 0 6px;
+}
+
+.measurement-notes p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .measurement-images {
   display: grid;
   grid-template-columns: repeat(2, minmax(180px, 1fr));
@@ -465,6 +484,16 @@ body[data-page="signup"] #resetPasswordPanel {
 
 .toolbar.left {
   justify-content: flex-start;
+}
+
+.archive-fields {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.archive-field {
+  margin: 0;
 }
 
 h1,
@@ -630,6 +659,7 @@ h3 {
 
 .field input,
 .field select,
+.field textarea,
 .select {
   width: 100%;
   min-height: 34px;
@@ -638,6 +668,10 @@ h3 {
   padding: 5px 8px;
   background: var(--panel);
   color: var(--text);
+}
+
+.field textarea {
+  resize: vertical;
 }
 
 .check,

@@ -23,6 +23,7 @@ const allowedOrigins = new Set([
   'https://leafmeasurement.casparniemeyer.com',
   'https://leafmeasure.casparniemeyer.com',
 ].map((origin) => origin.replace(/\/$/, '')));
+const trustProxy = parseBoolean(process.env.TRUST_PROXY, false);
 const sessionDays = 14;
 const jwtIssuer = 'leaf-measurement';
 const jwtAudience = 'leaf-measurement-web';
@@ -31,6 +32,7 @@ const rateLimits = new Map();
 const smtpConfig = {
   host: process.env.SMTP_HOST || '',
   port: Number(process.env.SMTP_PORT || 587),
+  servername: process.env.SMTP_SERVERNAME || process.env.SMTP_HOST || '',
   user: process.env.SMTP_USER || '',
   pass: process.env.SMTP_PASS || '',
   from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
@@ -56,6 +58,8 @@ const csvFields = [
   'measurement_id',
   'project_id',
   'user_email',
+  'description',
+  'notes',
   'status',
   'green_area_cm2',
   'convex_hull_cm2',
@@ -142,6 +146,10 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+function archiveText(value, maxLength) {
+  return String(value || '').trim().slice(0, maxLength);
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -156,7 +164,13 @@ function isExpired(iso) {
 
 function csvEscape(value) {
   const text = value == null ? '' : String(value);
-  return `"${text.replaceAll('"', '""')}"`;
+  const safeText = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return `"${safeText.replaceAll('"', '""')}"`;
+}
+
+function isPathInside(root, candidate) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (relative && !relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function measurementCsvRow(measurement, db) {
@@ -166,6 +180,8 @@ function measurementCsvRow(measurement, db) {
     measurement_id: measurement.id,
     project_id: measurement.projectId,
     user_email: user?.email || '',
+    description: measurement.description || '',
+    notes: measurement.notes || '',
     status: measurement.status || '',
     green_area_cm2: measurement.greenArea ?? '',
     convex_hull_cm2: measurement.convexArea ?? '',
@@ -297,23 +313,27 @@ function signJwt(payload) {
 }
 
 function verifyJwt(jwt) {
-  if (!jwt || typeof jwt !== 'string') return null;
-  const parts = jwt.split('.');
-  if (parts.length !== 3) return null;
-  const [encodedHeader, encodedPayload, signature] = parts;
-  const expected = crypto
-    .createHmac('sha256', jwtSecret)
-    .update(`${encodedHeader}.${encodedPayload}`)
-    .digest('base64url');
-  const a = Buffer.from(signature);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  const header = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString('utf8'));
-  if (header.alg !== 'HS256') return null;
-  const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
-  if (payload.iss !== jwtIssuer || payload.aud !== jwtAudience) return null;
-  if (!payload.exp || payload.exp * 1000 < Date.now()) return null;
-  return payload;
+  try {
+    if (!jwt || typeof jwt !== 'string') return null;
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+    const [encodedHeader, encodedPayload, signature] = parts;
+    const expected = crypto
+      .createHmac('sha256', jwtSecret)
+      .update(`${encodedHeader}.${encodedPayload}`)
+      .digest('base64url');
+    const a = Buffer.from(signature);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const header = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString('utf8'));
+    if (header.alg !== 'HS256') return null;
+    const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+    if (payload.iss !== jwtIssuer || payload.aud !== jwtAudience) return null;
+    if (!payload.exp || payload.exp * 1000 < Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 function tokenHash(value) {
@@ -478,7 +498,10 @@ function requireEmail(email) {
 }
 
 function clientIp(request) {
-  return String(request.headers['x-forwarded-for'] || request.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  if (trustProxy) {
+    return String(request.headers['x-forwarded-for'] || request.socket.remoteAddress || 'unknown').split(',')[0].trim();
+  }
+  return String(request.socket.remoteAddress || 'unknown');
 }
 
 function checkRateLimit(request, bucket, limit, windowMs) {
@@ -603,7 +626,7 @@ async function sendSmtpMail({ to, subject, html, text }) {
     ? tls.connect({
       host: smtpConfig.host,
       port: smtpConfig.port,
-      servername: smtpConfig.host,
+      servername: smtpConfig.servername,
       rejectUnauthorized: smtpConfig.rejectUnauthorized,
     })
     : net.connect({ host: smtpConfig.host, port: smtpConfig.port });
@@ -673,9 +696,9 @@ async function sendSmtpMail({ to, subject, html, text }) {
       socket.removeAllListeners('error');
       socket.removeAllListeners('timeout');
       socket = tls.connect({
-        socket,
-        servername: smtpConfig.host,
-        rejectUnauthorized: smtpConfig.rejectUnauthorized,
+      socket,
+      servername: smtpConfig.servername,
+      rejectUnauthorized: smtpConfig.rejectUnauthorized,
       });
       socket.setTimeout(20000);
       await waitForSocket(socket);
@@ -818,6 +841,8 @@ function measurementListItem(measurement, db) {
     id: measurement.id,
     createdAt: measurement.createdAt,
     userEmail: user?.email || '',
+    description: measurement.description || '',
+    notes: measurement.notes || '',
     status: measurement.status,
     greenArea: measurement.greenArea,
     convexArea: measurement.convexArea,
@@ -1133,7 +1158,7 @@ async function handleDeleteProject(request, response, projectId) {
 
   const base = path.normalize(path.join(archiveDir, 'projects', projectId));
   const allowedRoot = path.normalize(path.join(archiveDir, 'projects'));
-  if (base.startsWith(allowedRoot)) await fs.rm(base, { recursive: true, force: true });
+  if (base !== allowedRoot && isPathInside(allowedRoot, base)) await fs.rm(base, { recursive: true, force: true });
   sendJson(response, 200, { ok: true });
 }
 
@@ -1208,7 +1233,7 @@ async function handleDeleteMeasurement(request, response, projectId, measurement
   for (const filename of Object.values(deleted?.images || {})) {
     if (!filename) continue;
     const filePath = path.normalize(path.join(imagesRoot, filename));
-    if (filePath.startsWith(imagesRoot)) await fs.rm(filePath, { force: true });
+    if (isPathInside(imagesRoot, filePath)) await fs.rm(filePath, { force: true });
   }
   await rewriteProjectCsv(await readDb(), projectId);
   sendJson(response, 200, { ok: true });
@@ -1227,7 +1252,7 @@ async function handleMeasurementImage(request, response, projectId, measurementI
   }
   const filePath = path.normalize(path.join(archiveDir, 'projects', projectId, 'images', filename));
   const allowedRoot = path.normalize(path.join(archiveDir, 'projects', projectId, 'images'));
-  if (!filePath.startsWith(allowedRoot)) {
+  if (!isPathInside(allowedRoot, filePath)) {
     response.writeHead(403);
     response.end('Forbidden');
     return;
@@ -1269,7 +1294,7 @@ async function handleProjectZip(request, response, projectId) {
     for (const filename of Object.values(measurement.images || {})) {
       if (!filename || addedImages.has(filename)) continue;
       const filePath = path.normalize(path.join(imagesRoot, filename));
-      if (!filePath.startsWith(imagesRoot)) continue;
+      if (!isPathInside(imagesRoot, filePath)) continue;
       try {
         entries.push({ name: `images/${filename}`, data: await fs.readFile(filePath) });
         addedImages.add(filename);
@@ -1296,6 +1321,8 @@ async function handleArchive(request, response) {
   const projectId = String(payload.projectId || '');
   const project = findProjectForUser(auth.db, projectId, user.id);
   const measurement = payload.measurement || {};
+  const description = archiveText(payload.description, 120);
+  const notes = archiveText(payload.notes, 2000);
   const settings = payload.settings || {};
   const images = payload.images || {};
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -1313,6 +1340,8 @@ async function handleArchive(request, response) {
     measurement_id: measurementId,
     project_id: project.id,
     user_email: user.email,
+    description,
+    notes,
     status: measurement.status || '',
     green_area_cm2: measurement.area ?? '',
     convex_hull_cm2: measurement.convexArea ?? '',
@@ -1328,14 +1357,14 @@ async function handleArchive(request, response) {
     result_image: saved.result,
     mask_image: saved.mask,
   };
-  await fs.appendFile(projectArchive.csvPath, `${csvFields.map((field) => csvEscape(row[field])).join(',')}\n`, 'utf8');
-
   const savedMeasurement = await mutateDb(async (db) => {
     const item = {
       id: measurementId,
       projectId: project.id,
       userId: user.id,
       createdAt: row.timestamp,
+      description,
+      notes,
       status: row.status,
       greenArea: Number(measurement.area ?? 0),
       convexArea: Number(measurement.convexArea ?? 0),
@@ -1348,7 +1377,9 @@ async function handleArchive(request, response) {
     db.measurements.push(item);
     return item;
   });
-  sendJson(response, 200, { ok: true, measurement: measurementDetail(savedMeasurement, await readDb()) });
+  const updatedDb = await readDb();
+  await rewriteProjectCsv(updatedDb, project.id);
+  sendJson(response, 200, { ok: true, measurement: measurementDetail(savedMeasurement, updatedDb) });
 }
 
 async function serveStatic(request, response) {
@@ -1359,7 +1390,7 @@ async function serveStatic(request, response) {
     pathname = '/index.html';
   }
   const filePath = path.normalize(path.join(publicDir, pathname));
-  if (!filePath.startsWith(publicDir)) {
+  if (!isPathInside(publicDir, filePath)) {
     response.writeHead(403, securityHeaders());
     response.end('Forbidden');
     return;
@@ -1408,7 +1439,10 @@ async function route(request, response) {
     checkRateLimit(request, 'reset-password', 12, 15 * 60 * 1000);
     return handleResetPassword(request, response);
   }
-  if (request.method === 'POST' && pathname === '/api/account') return handleAccountUpdate(request, response);
+  if (request.method === 'POST' && pathname === '/api/account') {
+    checkRateLimit(request, 'account', 20, 15 * 60 * 1000);
+    return handleAccountUpdate(request, response);
+  }
   if (request.method === 'POST' && pathname === '/api/projects') return handleCreateProject(request, response);
   if (request.method === 'POST' && pathname === '/api/projects/join') return handleJoinProject(request, response);
   if (request.method === 'POST' && pathname === '/api/archive') return handleArchive(request, response);

@@ -40,6 +40,8 @@ const els = {
   brushSize: $('brushSize'),
   archive: $('archiveButton'),
   archiveStatus: $('archiveStatus'),
+  archiveDescription: $('archiveDescription'),
+  archiveNotes: $('archiveNotes'),
   csv: $('downloadCsv'),
   authStatus: $('authStatus'),
   authForms: $('authForms'),
@@ -53,14 +55,17 @@ const els = {
   platformMessage: $('platformMessage'),
   projectArea: $('projectArea'),
   profileArea: $('profileArea'),
-  profileForm: $('profileForm'),
+  profileEmailForm: $('profileEmailForm'),
+  profilePasswordForm: $('profilePasswordForm'),
   profileEmail: $('profileEmail'),
-  profileCurrentPassword: $('profileCurrentPassword'),
+  profileEmailCurrentPassword: $('profileEmailCurrentPassword'),
+  profilePasswordCurrentPassword: $('profilePasswordCurrentPassword'),
   profileNewPassword: $('profileNewPassword'),
   profileEmailLabel: $('profileEmailLabel'),
   profileVerifiedLabel: $('profileVerifiedLabel'),
   profileEmailValue: $('profileEmailValue'),
   profileVerifiedValue: $('profileVerifiedValue'),
+  resendVerification: $('resendVerificationButton'),
   projectSelect: $('projectSelect'),
   createProjectForm: $('createProjectForm'),
   projectMeasurementCount: $('projectMeasurementCount'),
@@ -167,7 +172,11 @@ const translations = {
     savePassword: 'Passwort speichern',
     account: 'Konto',
     editAccount: 'Kontodaten bearbeiten',
+    editEmail: 'E-Mail ändern',
+    editPassword: 'Passwort ändern',
+    saveEmail: 'E-Mail speichern',
     currentPassword: 'Aktuelles Passwort',
+    resendVerification: 'Bestätigungsmail erneut senden',
     save: 'Speichern',
     logout: 'Logout',
     project: 'Projekt',
@@ -234,6 +243,10 @@ const translations = {
     noImage: 'Noch kein Bild',
     findingMarkers: 'Suche Marker',
     noLeafDetected: 'Kein Blatt erkannt',
+    description: 'Beschreibung',
+    notes: 'Notizen',
+    archiveDescriptionPlaceholder: 'Name des Eintrags',
+    archiveNotesPlaceholder: 'Notizen zur Messung',
     archive: 'Archivieren',
     downloadCsv: 'ZIP herunterladen',
     archived: 'Archiviert',
@@ -272,11 +285,13 @@ const translations = {
     loginFailed: 'Login fehlgeschlagen: {error}',
     accountCreated: 'Account erstellt. Bitte bestätige den Link in deiner E-Mail. Prüfe auch den Spam-Ordner.',
     registerFailed: 'Registrierung fehlgeschlagen: {error}',
+    verificationResent: 'Bestätigungsmail wurde erneut angefordert. Prüfe dein Postfach und den Spam-Ordner.',
+    verificationResendFailed: 'Bestätigungsmail konnte nicht angefordert werden: {error}',
     resetLinkSent: 'Falls der Account existiert, wurde ein Reset-Link per E-Mail versendet. Prüfe auch den Spam-Ordner.',
     resetFailed: 'Reset fehlgeschlagen: {error}',
-    profileSaved: 'Profil gespeichert. Bei neuer E-Mail wurde ein Bestätigungslink versendet. Prüfe auch den Spam-Ordner.',
-    profileSaveFailed: 'Profil konnte nicht gespeichert werden: {error}',
-    passwordChanged: 'Passwort geändert. Bitte neu einloggen.',
+    profileEmailSaved: 'E-Mail gespeichert. Bei neuer E-Mail wurde ein Bestätigungslink versendet. Prüfe auch den Spam-Ordner.',
+    profileEmailSaveFailed: 'E-Mail konnte nicht gespeichert werden: {error}',
+    passwordChanged: 'Passwort geändert.',
     passwordChangeFailed: 'Passwort konnte nicht geändert werden: {error}',
     loggedOut: 'Ausgeloggt.',
     projectCreated: 'Projekt erstellt.',
@@ -335,7 +350,11 @@ const translations = {
     savePassword: 'Save password',
     account: 'Account',
     editAccount: 'Edit account details',
+    editEmail: 'Change email',
+    editPassword: 'Change password',
+    saveEmail: 'Save email',
     currentPassword: 'Current password',
+    resendVerification: 'Resend confirmation email',
     save: 'Save',
     logout: 'Logout',
     project: 'Project',
@@ -402,6 +421,10 @@ const translations = {
     noImage: 'No image yet',
     findingMarkers: 'Finding markers',
     noLeafDetected: 'No leaf detected',
+    description: 'Description',
+    notes: 'Notes',
+    archiveDescriptionPlaceholder: 'Entry name',
+    archiveNotesPlaceholder: 'Measurement notes',
     archive: 'Archive',
     downloadCsv: 'Download ZIP',
     archived: 'Archived',
@@ -440,11 +463,13 @@ const translations = {
     loginFailed: 'Login failed: {error}',
     accountCreated: 'Account created. Please confirm the link in your email. Also check your spam folder.',
     registerFailed: 'Registration failed: {error}',
+    verificationResent: 'Confirmation email was requested again. Check your inbox and spam folder.',
+    verificationResendFailed: 'Confirmation email could not be requested: {error}',
     resetLinkSent: 'If the account exists, a reset link was sent by email. Also check your spam folder.',
     resetFailed: 'Reset failed: {error}',
-    profileSaved: 'Profile saved. If you changed the email address, a confirmation link was sent. Also check your spam folder.',
-    profileSaveFailed: 'Profile could not be saved: {error}',
-    passwordChanged: 'Password changed. Please sign in again.',
+    profileEmailSaved: 'Email saved. If you changed the address, a confirmation link was sent. Also check your spam folder.',
+    profileEmailSaveFailed: 'Email could not be saved: {error}',
+    passwordChanged: 'Password changed.',
     passwordChangeFailed: 'Password could not be changed: {error}',
     loggedOut: 'Signed out.',
     projectCreated: 'Project created.',
@@ -500,6 +525,16 @@ function setText(selector, text) {
   if (element) element.textContent = text;
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[char]);
+}
+
 function applyLanguage() {
   document.documentElement.lang = inputs.language.value;
   document.title = tr('title');
@@ -533,6 +568,10 @@ function applyLanguage() {
   els.convexHullLabel.textContent = tr('convexHull');
   els.damageLabel.textContent = tr('damage');
   els.measurementStatusLabel.textContent = tr('status');
+  setLabelText(els.archiveDescription?.closest('label'), tr('description'));
+  setLabelText(els.archiveNotes?.closest('label'), tr('notes'));
+  els.archiveDescription.placeholder = tr('archiveDescriptionPlaceholder');
+  els.archiveNotes.placeholder = tr('archiveNotesPlaceholder');
   els.profileEmailLabel.textContent = tr('profileEmail');
   els.profileVerifiedLabel.textContent = tr('profileVerification');
   if (!state.lastMeasurement) els.status.textContent = tr('noImage');
@@ -557,12 +596,16 @@ function applyLanguage() {
   els.resetPasswordButton.textContent = tr('savePassword');
 
   setText('.profile-summary h3', tr('account'));
+  els.resendVerification.textContent = tr('resendVerification');
   setText('#logoutButton', tr('logout'));
-  setText('#profileForm h3', tr('editAccount'));
+  setText('#profileEmailForm h3', tr('editEmail'));
   setLabelText(els.profileEmail?.closest('label'), tr('profileEmail'));
-  setLabelText(els.profileCurrentPassword?.closest('label'), tr('currentPassword'));
+  setLabelText(els.profileEmailCurrentPassword?.closest('label'), tr('currentPassword'));
+  setText('#profileEmailForm button[type="submit"]', tr('saveEmail'));
+  setText('#profilePasswordForm h3', tr('editPassword'));
+  setLabelText(els.profilePasswordCurrentPassword?.closest('label'), tr('currentPassword'));
   setLabelText(els.profileNewPassword?.closest('label'), tr('newPassword'));
-  setText('#profileForm button[type="submit"]', tr('save'));
+  setText('#profilePasswordForm button[type="submit"]', tr('savePassword'));
 
   setText('#projectArea .auth-box:nth-child(1) h3', tr('project'));
   setLabelText(els.projectSelect?.closest('label'), tr('activeProject'));
@@ -882,10 +925,12 @@ function renderProjectDashboard() {
 function renderProfile() {
   if (!state.user) return;
   els.profileEmail.value = state.user.email || '';
-  els.profileCurrentPassword.value = '';
+  els.profileEmailCurrentPassword.value = '';
+  els.profilePasswordCurrentPassword.value = '';
   els.profileNewPassword.value = '';
   els.profileEmailValue.textContent = state.user.email || '-';
   els.profileVerifiedValue.textContent = state.user.verified ? tr('verified') : tr('notVerified');
+  els.resendVerification.classList.toggle('hidden', state.user.verified);
 }
 
 function renderMeasurementList() {
@@ -903,12 +948,13 @@ function renderMeasurementList() {
     const li = document.createElement('li');
     const button = document.createElement('button');
     button.type = 'button';
+    const measurementTitle = measurement.description || formatDate(measurement.createdAt);
     button.innerHTML = `
       <span class="measurement-title">
-        <span>${formatDate(measurement.createdAt)}</span>
+        <span>${escapeHtml(measurementTitle)}</span>
         <span>${Number(measurement.damagePercent || 0).toFixed(1)}%</span>
       </span>
-      <span class="measurement-meta">${measurement.userEmail || ''} · ${Number(measurement.greenArea || 0).toFixed(3)} cm² Blatt · ${Number(measurement.damageArea || 0).toFixed(3)} cm² Schaden</span>
+      <span class="measurement-meta">${escapeHtml(measurement.userEmail || '')} · ${formatDate(measurement.createdAt)} · ${Number(measurement.greenArea || 0).toFixed(3)} cm² Blatt · ${Number(measurement.damageArea || 0).toFixed(3)} cm² Schaden</span>
     `;
     button.addEventListener('click', () => selectMeasurement(measurement.id, button));
     if (owner) {
@@ -944,6 +990,7 @@ async function selectMeasurement(measurementId, button) {
 
 function renderMeasurementDetail(measurement) {
   const stats = [
+    [tr('description'), measurement.description || '-'],
     ['Grüne Fläche', `${Number(measurement.greenArea || 0).toFixed(3)} cm²`],
     ['Convex Hull', `${Number(measurement.convexArea || 0).toFixed(3)} cm²`],
     ['Schaden', `${Number(measurement.damageArea || 0).toFixed(3)} cm² (${Number(measurement.damagePercent || 0).toFixed(1)}%)`],
@@ -955,17 +1002,18 @@ function renderMeasurementDetail(measurement) {
   const ownerAction = isProjectOwner() ? `<button id="deleteSelectedMeasurement" class="button danger small" type="button">${tr('deleteMeasurement')}</button>` : '';
   els.measurementDetail.innerHTML = `
     <div class="detail-head">
-      <h3>Messung ${formatDate(measurement.createdAt)}</h3>
+      <h3>${escapeHtml(measurement.description || `${tr('measurement')} ${formatDate(measurement.createdAt)}`)}</h3>
       ${ownerAction}
     </div>
     <dl class="metrics compact">
-      ${stats.map(([key, value]) => `<div><dt>${key}</dt><dd>${value}</dd></div>`).join('')}
+      ${stats.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}
     </dl>
+    ${measurement.notes ? `<section class="measurement-notes"><h4>${escapeHtml(tr('notes'))}</h4><p>${escapeHtml(measurement.notes)}</p></section>` : ''}
     <div class="measurement-images">
       ${Object.entries(measurement.images || {}).filter(([, src]) => src).map(([key, src]) => `
         <div class="measurement-image-card">
-          <strong>${imageLabels[key] || key}</strong>
-          <img src="${src}" alt="${imageLabels[key] || key}">
+          <strong>${escapeHtml(imageLabels[key] || key)}</strong>
+          <img src="${escapeHtml(src)}" alt="${escapeHtml(imageLabels[key] || key)}">
         </div>
       `).join('')}
     </div>
@@ -1821,6 +1869,8 @@ async function archiveCurrent() {
   }
   const body = {
     projectId: project.id,
+    description: els.archiveDescription.value.trim(),
+    notes: els.archiveNotes.value.trim(),
     measurement: state.lastMeasurement,
     settings: settings(),
     images: {
@@ -1833,6 +1883,10 @@ async function archiveCurrent() {
   try {
     const result = await api('/api/archive', { method: 'POST', body });
     els.archiveStatus.textContent = result.ok ? 'Archiviert' : `Fehler: ${result.error || 'unbekannt'}`;
+    if (result.ok) {
+      els.archiveDescription.value = '';
+      els.archiveNotes.value = '';
+    }
     await refreshAccount();
   } catch (error) {
     els.archiveStatus.textContent = `Fehler: ${error.message}`;
@@ -1897,22 +1951,50 @@ function setupEvents() {
       setPlatformMessage(tr('resetFailed', { error: errorText(error) }));
     }
   });
-  els.profileForm.addEventListener('submit', async (event) => {
+  els.resendVerification.addEventListener('click', async () => {
+    if (!state.user?.email) return;
+    try {
+      await api('/api/auth/resend-verification', {
+        method: 'POST',
+        body: { email: state.user.email },
+      });
+      setPlatformMessage(tr('verificationResent'));
+    } catch (error) {
+      setPlatformMessage(tr('verificationResendFailed', { error: errorText(error) }));
+    }
+  });
+  els.profileEmailForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
       await api('/api/account', {
         method: 'POST',
         body: {
           email: els.profileEmail.value,
-          currentPassword: els.profileCurrentPassword.value,
+          currentPassword: els.profileEmailCurrentPassword.value,
+        },
+      });
+      await refreshAccount();
+      setPage('profile');
+      setPlatformMessage(tr('profileEmailSaved'));
+    } catch (error) {
+      setPlatformMessage(tr('profileEmailSaveFailed', { error: errorText(error) }));
+    }
+  });
+  els.profilePasswordForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await api('/api/account', {
+        method: 'POST',
+        body: {
+          currentPassword: els.profilePasswordCurrentPassword.value,
           newPassword: els.profileNewPassword.value,
         },
       });
       await refreshAccount();
       setPage('profile');
-      setPlatformMessage(tr('profileSaved'));
+      setPlatformMessage(tr('passwordChanged'));
     } catch (error) {
-      setPlatformMessage(tr('profileSaveFailed', { error: errorText(error) }));
+      setPlatformMessage(tr('passwordChangeFailed', { error: errorText(error) }));
     }
   });
   els.resetPasswordButton.addEventListener('click', async () => {

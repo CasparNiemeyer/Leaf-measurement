@@ -110,15 +110,22 @@
                 <div><dt id="profileEmailLabel">E-Mail</dt><dd id="profileEmailValue">-</dd></div>
                 <div><dt id="profileVerifiedLabel">Verifizierung</dt><dd id="profileVerifiedValue">-</dd></div>
               </dl>
+              <button id="resendVerificationButton" class="button" type="button">Bestätigungsmail erneut senden</button>
               <button id="logoutButton" class="button">Logout</button>
             </section>
 
-            <form id="profileForm" class="auth-box profile-form">
-              <h3>Kontodaten bearbeiten</h3>
+            <form id="profileEmailForm" class="auth-box profile-form">
+              <h3>E-Mail ändern</h3>
               <label class="field">E-Mail <input id="profileEmail" type="email" autocomplete="email"></label>
-              <label class="field">Aktuelles Passwort <input id="profileCurrentPassword" type="password" autocomplete="current-password"></label>
+              <label class="field">Aktuelles Passwort <input id="profileEmailCurrentPassword" type="password" autocomplete="current-password"></label>
+              <button class="button primary" type="submit">E-Mail speichern</button>
+            </form>
+
+            <form id="profilePasswordForm" class="auth-box profile-form">
+              <h3>Passwort ändern</h3>
+              <label class="field">Aktuelles Passwort <input id="profilePasswordCurrentPassword" type="password" autocomplete="current-password"></label>
               <label class="field">Neues Passwort <input id="profileNewPassword" type="password" autocomplete="new-password" minlength="8"></label>
-              <button class="button primary" type="submit">Speichern</button>
+              <button class="button primary" type="submit">Passwort speichern</button>
             </form>
           </div>
           <p id="platformMessage" class="hint"></p>
@@ -183,6 +190,14 @@
             <div><dt id="damageLabel">Schaden</dt><dd id="damageValue">-</dd></div>
             <div><dt id="measurementStatusLabel">Status</dt><dd id="statusValue">Noch kein Bild</dd></div>
           </dl>
+          <div class="archive-fields">
+            <label class="field archive-field">Beschreibung
+              <input id="archiveDescription" type="text" maxlength="120" placeholder="Name des Eintrags">
+            </label>
+            <label class="field archive-field">Notizen
+              <textarea id="archiveNotes" maxlength="2000" rows="4" placeholder="Notizen zur Messung"></textarea>
+            </label>
+          </div>
           <div class="toolbar left">
             <button id="archiveButton" class="button primary">Archivieren</button>
             <a id="downloadCsv" class="button" href="#">ZIP herunterladen</a>
