@@ -801,8 +801,8 @@ function settings() {
   if (satMin > satMax) [satMin, satMax] = [satMax, satMin];
   if (valMin > valMax) [valMin, valMax] = [valMax, valMin];
   return {
-    physWidth: Math.max(0.001, numberValue(inputs.physWidth, 13.4)),
-    physHeight: Math.max(0.001, numberValue(inputs.physHeight, 13.4)),
+    physWidth: Math.max(0.001, numberValue(inputs.physWidth, 17.0)),
+    physHeight: Math.max(0.001, numberValue(inputs.physHeight, 17.0)),
     digWidth: Math.max(200, Math.min(1400, Math.round(numberValue(inputs.digWidth, 700)))),
     analysisFps: Math.max(1, Math.min(30, numberValue(inputs.analysisFps, 8))),
     kernelSize: Math.max(1, Math.min(31, Math.round(numberValue(inputs.kernelSize, 5)))),

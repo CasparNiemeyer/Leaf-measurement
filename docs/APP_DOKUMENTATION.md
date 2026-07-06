@@ -136,7 +136,7 @@ Die Standardwerte der App fuer **Physische Breite cm** und **Physische Hoehe cm*
 2. Blatt flach in den Messbereich legen.
 3. Kamera starten oder ein Bild hochladen.
 4. Pruefen, ob alle vier Marker im Fullframe sichtbar sind.
-5. In den Einstellungen die Standardwerte fuer physische Breite/Hoehe verwenden, solange die Box-Geometrie unveraendert ist.
+5. In den Einstellungen die Standardwerte fuer physische Breite/Hoehe verwenden: 17,0 cm / 170 mm, solange die Box-Geometrie unveraendert ist.
 6. `Cropped` pruefen: Der Ausschnitt muss sauber entzerrt und quadratisch wirken.
 7. HSV-Regler nur anpassen, wenn Blatt und Hintergrund nicht sauber getrennt werden.
 8. Messung pruefen und bei Bedarf manuell nachzeichnen.
