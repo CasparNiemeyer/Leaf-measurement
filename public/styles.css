@@ -341,9 +341,43 @@ body[data-page="signup"] #resetPasswordPanel {
   font-size: 0.82rem;
 }
 
-.measurement-browser {
+.project-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   border-top: 1px solid var(--border);
   padding-top: 12px;
+}
+
+.tab-button {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.tab-button:hover,
+.tab-button.active {
+  border-color: var(--accent);
+  background: rgba(22, 163, 74, 0.12);
+  color: var(--text);
+}
+
+.measurement-browser {
+  padding-top: 4px;
+}
+
+.project-help {
+  padding-top: 4px;
+}
+
+.help-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .measurement-layout {
@@ -388,6 +422,12 @@ body[data-page="signup"] #resetPasswordPanel {
   width: auto;
   align-self: stretch;
   text-align: center;
+}
+
+.measurement-downloads {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .detail-head {
@@ -612,6 +652,12 @@ h3 {
   font-size: 0.82rem;
 }
 
+.tool-row .button {
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+}
+
 .button:hover,
 .icon-button:hover,
 .tool:hover {
@@ -620,18 +666,22 @@ h3 {
 }
 
 .tool {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  min-height: 38px;
   display: inline-grid;
   place-items: center;
   padding: 0;
   color: var(--accent);
   font-weight: 700;
+  line-height: 1;
 }
 
 .tool.active {
-  outline: 2px solid var(--accent);
+  border-color: var(--accent);
   background: rgba(22, 163, 74, 0.14);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .tool svg {
@@ -918,6 +968,12 @@ h3 {
 
   .measurement-list .measurement-delete {
     width: 100%;
+  }
+
+  .tab-button,
+  .help-links .button {
+    flex: 1 1 160px;
+    text-align: center;
   }
 
   .tool-row {

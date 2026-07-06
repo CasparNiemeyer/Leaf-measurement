@@ -1,177 +1,238 @@
 # Leaf Measurement App - Dokumentation
 
-Diese App misst Blattflächen in einem ArUco-Marker-Quadrat und schätzt Blattschäden. Sie kann Livebilder aus der Browser-Kamera oder ein hochgeladenes Bild verarbeiten. Die App erkennt die vier Marker, entzerrt den Bereich zwischen ihnen, filtert grüne Blattbereiche und berechnet daraus Fläche, Convex-Hull-Fläche und Schadensanteil.
+Leaf Measurement ist eine webbasierte Anwendung zum Vermessen von Blattflaechen innerhalb eines Marker-Rahmens. Die Analyse laeuft im Browser; der Node-Server liefert die App aus und speichert Messungen erst, wenn eine Messung archiviert wird.
 
-## App Starten
+**Live-App:** https://leafmeasurement.casparniemeyer.com
 
-1. Virtuelle Umgebung aktivieren:
+## Reiter
 
-```powershell
-.\.venv\Scripts\Activate.ps1
+- [Installation](#installation)
+- [Box bauen](#box-bauen)
+- [Inbetriebnahme mit der Box](#inbetriebnahme-mit-der-box)
+- [Inbetriebnahme mit dem Tracking Sheet](#inbetriebnahme-mit-dem-tracking-sheet)
+- [Messung und Archiv](#messung-und-archiv)
+- [Einstellungen](#einstellungen)
+- [Hinweise zur Genauigkeit](#hinweise-zur-genauigkeit)
+
+## Installation
+
+### Voraussetzungen
+
+- Node.js 20 oder neuer
+- Ein aktueller Browser mit Kamera-Unterstuetzung
+- Fuer Kamera-Nutzung im Browser: `https://...` oder lokal `localhost`
+
+### Lokal starten
+
+```bash
+npm start
 ```
 
-2. App starten:
-
-```powershell
-python ui.py
-```
-
-3. Im Browser öffnen:
+Standard-Adresse:
 
 ```text
-http://127.0.0.1:8080/
+http://localhost:8080/
 ```
 
-Wenn die App von anderen Geräten im gleichen Netzwerk geöffnet werden soll, kann die Adresse des Rechners verwendet werden lauscht. Beispiel:
+Optionaler Port:
 
-```text
-http://<IP-des-Rechners>:8080/
+```bash
+PORT=3000 npm start
 ```
 
-## Überblick
+Unter Windows PowerShell:
 
-![Gesamte App-Oberfläche](assets/app_fullpage.png)
+```powershell
+$env:PORT=3000
+npm start
+```
 
-Die Oberfläche besteht aus vier Hauptbereichen:
+### Produktion
 
-- Links oben: Kamera- und Fullframe-Vorschau
-- Links mittig: manuelle Zeichenwerkzeuge
-- Links unten: Cropped-, Result- und Damage-Mask-Vorschauen
-- Rechts: Sprache, Dunkelmodus, Messwerte und Einstellungen
+Empfohlene Umgebungsvariablen:
 
-## Kamera Und Fullframe
+```bash
+PUBLIC_URL=https://leafmeasurement.casparniemeyer.com
+JWT_SECRET=<mindestens 32 zufaellige Zeichen>
+HOST=127.0.0.1
+PORT=8881
+TRUST_PROXY=true
+```
 
-![Kamera-Schaltflächen](assets/camera_controls.png)
+Fuer E-Mail-Verifizierung und Passwort-Reset muss SMTP konfiguriert sein. Ohne SMTP schreibt die lokale Entwicklung Mails in `data/mail-outbox.jsonl`.
 
-| Element | Funktion |
+## Box bauen
+
+Die Messbox besteht aus drei gedruckten Teilen:
+
+- untere Schale
+- Deckel
+- Tracking Plate
+
+### Druckdateien
+
+- Fusion-Datei: [leaf-measurement-box.f3d](assets/box/leaf-measurement-box.f3d)
+- 3MF-Datei: [leaf-measurement-box.3mf](assets/box/leaf-measurement-box.3mf)
+
+Empfehlung: Die **3MF-Datei** verwenden. Sie wurde in Orca Slicer erstellt und enthaelt bereits das vorbereitete Backing sowie die Assembly der Teile. Die Fusion-Datei ist vor allem fuer Anpassungen am Modell gedacht.
+
+### Material und Komponenten
+
+| Komponente | Hinweis |
 | --- | --- |
-| Kamera-Auswahl | Wählt die Browser-Kamera aus. Wenn keine Kamera gewählt ist, wird die Standardkamera verwendet. |
-| Find cameras / Kameras suchen | Lädt die Kameraliste neu und ersetzt die bisherige Liste vollständig. |
-| Camera status / Kamera-Status | Zeigt den aktuellen Kamera-Zustand, z.B. bereit, aktiv, Fehler oder unterbrochen. |
-| Start camera / Kamera starten | Startet die Browser-Kamera und sendet regelmäßig Frames an den Server. |
-| Stop | Stoppt den Browser-Kamera-Stream. |
-| Freeze | Friert den aktuellen Frame ein. Danach werden Messung und Zeichnungen auf diesem Stand durchgeführt. |
-| Live | Erscheint nach Freeze. Schaltet zurück zum Livebild. |
+| LED-Streifen | Empfehlung: https://amzn.to/4ePdf3e |
+| USB-C-PD-Stecker / Trigger-Modul | Empfehlung: https://amzn.to/3R28YQW |
+| Museumsglas | Wichtig: 20 x 20 cm, Empfehlung: https://amzn.to/4vc2HQz |
+| M3-Muttern | Werden in die Loecher des Deckels gedrueckt. |
+| M3x20-mm-Schrauben | Deckel von unten verschrauben. |
+| PD-Netzteil oder PD-Powerbank mit 12-V-Ausgang | Muss USB-C Power Delivery und 12 V Ausgangsspannung unterstuetzen. |
 
-Die Fullframe-Vorschau zeigt das unveränderte Kamerabild. Dort sollten alle vier ArUco-Marker sichtbar sein. Wenn die Marker nicht erkannt werden, kann die App keinen sauberen Zuschnitt erzeugen.
+Getestete Stromversorgungen:
 
-## Manuelle Zeichenwerkzeuge
+- Powerbank: https://amzn.to/4vdEedy
+- Ladegeraet: https://amzn.to/4fmr21q
 
-![Manuelle Zeichenwerkzeuge](assets/manual_tools.png)
+### LED-Streifen einbauen
 
-Gezeichnet wird auf dem `Cropped`-Bild, nicht auf dem Fullframe. Jede Browser-Session hat eine eigene manuelle Maske.
+Nach dem Druck werden die LED-Streifen in die untere Schale geklebt. Die Streifen werden in Reihen verlegt und miteinander verbunden. Danach werden sie an das USB-C-PD-Trigger-Modul angeschlossen.
 
-| Element | Funktion |
-| --- | --- |
-| Include / Einrechnen | Schaltet manuelle Masken in Berechnung und Ergebnisanzeige ein oder aus. |
-| Damage / Schaden | Malt manuelle Schadensbereiche. Diese werden zur Schadensfläche addiert. Überlappungen mit automatisch erkannten Schäden werden nur einmal gezählt. |
-| Correct / Korrekt | Malt Bereiche, die wieder zur gesunden Blattfläche gezählt werden sollen. Diese Bereiche entfernen Schaden und erhöhen die grüne Fläche. |
-| Remove / Entfernen | Entfernt Bereiche komplett aus der Flächenberechnung, ohne sie als Schaden zu zählen. Nützlich für Fremdobjekte, Stiele, Markerreste oder falsch erkannte Bereiche. |
-| Eraser / Radierer | Löscht manuelle Damage-, Correct- und Remove-Markierungen im gezeichneten Bereich. |
-| Clear all / Alles löschen | Löscht alle manuellen Masken der aktuellen Session. |
-| Size / Größe | Legt die Pinsel- und Radierergröße in Pixeln fest. |
-| Convex edge damage / Convex-Randschäden | Schaltet die automatische Schadensschätzung zwischen Blattkontur und Convex Hull ein oder aus. |
-| Limit drawing to leaf mask / Zeichnen auf Blattmaske begrenzen | Manuelle Markierungen zählen nur innerhalb der automatisch erkannten Blattfläche. |
-| Shrink mask / Maske schrumpfen | Schrumpft die erkannte Blattmaske vor der Begrenzung. Damit können Randbereiche bewusst ausgeschlossen werden. |
-| Show auto damage on cropped / Auto-Schäden auf Cropped | Zeigt automatisch erkannte Schäden rot direkt im Cropped-Bild, damit man beim Zeichnen sieht, was bereits erkannt wurde. |
+<img src="assets/box/box-led-strip-layout.jpeg" alt="LED-Streifen in der unteren Schale" width="720">
 
-### Farbliche Darstellung
+Wichtig:
 
-| Farbe | Bedeutung |
-| --- | --- |
-| Rot | erkannter Schaden |
-| Orange | manuell hinzugefügter Schaden |
-| Grün | manuelle Korrektur, wird als gesunde Fläche gezählt |
-| Violett | manuell aus der gesamten Berechnung entfernter Bereich |
+- Polaritaet beachten: Plus zu Plus, Minus zu Minus.
+- Loetstellen und Draehte mechanisch entlasten.
+- Vor dem Einsetzen des Deckels kurz testen, ob alle LED-Reihen gleichmaessig leuchten.
 
-## Vorschaufenster
+### PD-Trigger auf 12 V einstellen
 
-![Vorschaufenster](assets/preview_panels.png)
+Am PD-Trigger-Modul die DIP-Schalter fuer 12 V setzen:
 
-| Vorschau | Bedeutung |
-| --- | --- |
-| Cropped | Entzerrter Bereich innerhalb der vier ArUco-Marker. Hier wird gezeichnet. |
-| Fullscreen | Öffnet das Cropped-Zeichenfeld als zentriertes Vollbild-Quadrat. Besonders hilfreich auf dem Handy. |
-| Result | Zeigt das gemessene Ergebnis mit farbigen Masken und optionalen Konturen. |
-| Damage mask | Zeigt die kombinierte Schadensmaske als reine Maske. |
+- Schalter 1: `ON`
+- Schalter 2: `ON`
+- Schalter 3: `OFF`
 
-Im Vollbildmodus bleiben Cropped-Bild und Zeichen-Canvas gleich groß, damit die gemalten Koordinaten exakt zur Vorschau passen.
+Nur eine Powerbank oder ein Netzteil verwenden, das USB-C Power Delivery mit 12 V Ausgang unterstuetzt. Auf dem Netzteil bzw. der Powerbank sollte 12 V als Ausgangsspannung angegeben sein.
 
-## Rechte Seitenleiste
+<img src="assets/box/pd-power-supply-12v-output.jpeg" alt="Netzteil mit 12-V-Ausgang" width="720">
 
-![Rechte Seitenleiste](assets/sidebar_settings.png)
+### Deckel montieren
 
-| Bereich | Funktion |
-| --- | --- |
-| Language / Sprache | Wechselt die UI-Sprache ohne Reload. Einstellungen und Masken bleiben erhalten. |
-| Dark mode / Dunkelmodus | Schaltet die Oberfläche hell/dunkel. |
-| Measurements / Messwerte | Zeigt aktuelle Messergebnisse. |
-| Basic settings / Grundeinstellungen | Enthält Eingabemodus, Upload und physische Marker-Maße. |
-| Filter settings / Filtereinstellungen | Enthält Kernelgröße und HSV-Schieberegler für den Farbfilter. |
+In die Loecher des Deckels werden M3-Muttern gedrueckt. Anschliessend wird der Deckel von unten mit M3x20-mm-Schrauben befestigt.
 
-## Messwerte
+<img src="assets/box/box-lid-m3-nut-and-pd-module.jpeg" alt="M3-Mutter und PD-Modul am Deckel" width="720">
 
-| Messwert | Bedeutung |
-| --- | --- |
-| Green area / Grüne Fläche | Fläche, die als gesundes grünes Blatt erkannt oder manuell korrigiert wurde. |
-| Convex hull / Convex Hull | Fläche der konvexen Hülle um das Blatt, abzüglich manuell entfernter Bereiche. |
-| Damage / Schaden | Kombinierte Schadensfläche aus automatischen und manuellen Schäden. |
-| Damage % / Schaden % | Schadensfläche relativ zur Convex-Hull-Fläche. |
-| Status | Gibt an, ob Marker und Blatt erkannt wurden oder ob ein Fehler vorliegt. |
+### Box verwenden
 
-## Grundeinstellungen
+Auf die fertige Box wird die Tracking Plate gelegt. Das Blatt wird zwischen Tracking Plate und Museumsglas gelegt, sodass es flach und reproduzierbar positioniert ist.
 
-| Einstellung | Bedeutung |
-| --- | --- |
-| Camera/image mode / Modus Kamera/Bild | Wählt zwischen Live-Kamera und hochgeladenem Bild. |
-| Image / Bild | Lädt ein Bild von der Festplatte. Nach dem Upload wird automatisch auf Bildmodus geschaltet. |
-| Physical width / Physische Breite | Reale Breite zwischen den Markern, Mitte zu Mitte. |
-| Physical height / Physische Höhe | Reale Höhe zwischen den Markern, Mitte zu Mitte. |
-| Digital resolution / Digitale Auflösung | Größe des entzerrten Crops in Pixeln. Höhere Werte liefern mehr Detail, brauchen aber mehr Rechenzeit. |
+Wichtig: Das Museumsglas muss **20 x 20 cm** gross sein. Andere Glasgroessen koennen die Positionierung und Wiederholbarkeit beeinflussen.
 
-## Filtereinstellungen
+## Inbetriebnahme mit der Box
 
-Die App nutzt HSV-Farbfilter, um Blattbereiche vom Hintergrund zu trennen.
+Die Standardwerte der App fuer **Physische Breite cm** und **Physische Hoehe cm** sind fuer die Messbox gedacht. Sie beschreiben den realen Abstand zwischen den Marker-Mittelpunkten der Box.
 
-| Regler | Bedeutung |
-| --- | --- |
-| Hue / Farbton | Farbtonbereich. Normalerweise ist eine Änderung hier nicht nötig |
-| Saturation / Sättigung | Mindest- und Höchst-Sättigung. Hilft, graue/weiße Hintergründe auszuschließen. |
-| Value / Helligkeit | Mindest- und Höchst-Helligkeit. Hilft bei Schatten und Reflexionen. |
-| Kernel size / Kernelgröße | Steuert die Rauschfilterung. Größere Werte entfernen kleine Störungen, können aber feine Blattdetails verlieren. |
+1. Box wie im Abschnitt [Box bauen](#box-bauen) vorbereiten.
+2. Blatt flach in den Messbereich legen.
+3. Kamera starten oder ein Bild hochladen.
+4. Pruefen, ob alle vier Marker im Fullframe sichtbar sind.
+5. In den Einstellungen die Standardwerte fuer physische Breite/Hoehe verwenden, solange die Box-Geometrie unveraendert ist.
+6. `Cropped` pruefen: Der Ausschnitt muss sauber entzerrt und quadratisch wirken.
+7. HSV-Regler nur anpassen, wenn Blatt und Hintergrund nicht sauber getrennt werden.
+8. Messung pruefen und bei Bedarf manuell nachzeichnen.
+9. Mit **Archivieren** im aktiven Projekt speichern.
 
-## Berechnungslogik
+Wenn Marker verdeckt sind, stark spiegeln oder nicht vollstaendig sichtbar sind, kann die Perspektivkorrektur falsch werden.
 
-1. Die App sucht vier ArUco-Marker.
-2. Aus den Markerpositionen wird eine Perspektivtransformation berechnet.
-3. Der Bereich zwischen den Markern wird als quadratisches Cropped-Bild entzerrt.
-4. HSV-Grenzen erzeugen eine grüne Blattmaske.
-5. Die größte Blattkontur wird gewählt.
-6. Aus der Kontur wird eine Convex Hull berechnet.
-7. Automatische Schäden entstehen aus:
-   - Bereichen innerhalb der Blattkontur, die nicht grün sind
-   - optional Bereichen zwischen Blattkontur und Convex Hull
-8. Manuelle Masken werden eingerechnet:
-   - Damage wird per Union zur Schadensmaske addiert
-   - Correct entfernt Schaden und zählt als grüne Fläche
-   - Remove entfernt Bereiche aus grüner Fläche, Hull und Schaden
-9. Überlappungen werden über Maskenoperationen behandelt, damit Flächen nicht doppelt gezählt werden.
+## Inbetriebnahme mit dem Tracking Sheet
 
-## Empfohlener Workflow
+Das Tracking Sheet ist eine separate Messvorlage. Die Standardwerte fuer Breite/Hoehe der Box gelten hier nicht automatisch.
 
-1. Blatt und vier ArUco-Marker vollständig ins Bild bringen.
-2. Kamera starten oder Bild hochladen.
-3. Prüfen, ob `Cropped` sinnvoll aussieht.
-4. HSV-Regler einstellen, bis das Blatt sauber erkannt wird.
-5. Bei Bedarf `Show auto damage on cropped` einschalten.
-6. Mit `Schaden`, `Korrekt` und `Entfernen` manuell nacharbeiten.
-8. Messwerte rechts ablesen.
+1. Tracking Sheet herunterladen:
+   - In der App: **Projekte & Archiv -> Hilfe -> Tracking Sheet herunterladen**
+   - Direkt: `/tracking-sheet.pdf`
+2. Sheet in Originalgroesse ausdrucken. Keine automatische Skalierung im Druckdialog verwenden.
+3. Nach dem Druck die reale Breite und Hoehe zwischen den Marker-Mittelpunkten messen.
+4. Diese Werte in der App unter **Physische Breite cm** und **Physische Hoehe cm** eintragen.
+5. Blatt flach auf das Sheet legen und Schatten/Reflexionen vermeiden.
+6. Kamera starten oder ein Foto hochladen.
+7. Pruefen, ob `Cropped` die Sheet-Flaeche korrekt abbildet.
+8. Erst danach Messung archivieren.
 
-## Hinweise Und Grenzen
+Wichtig: Schon kleine Druckskalierungen veraendern die Flaechenberechnung. Fuer reproduzierbare Ergebnisse sollten die gemessenen Sheet-Masse dokumentiert und fuer alle Messungen derselben Druckvorlage wiederverwendet werden.
 
-- Die Convex-Hull-Schätzung ist bei einfachen Blattformen hilfreich, aber bei stark gezackten oder komplexen Blättern nur eine Näherung welche natürliche Formen als Schäden markieren kann.
-- Reflexionen, Schatten und sehr helle Blätter können HSV-Filterung erschweren.
-- Manuelle Korrekturen gelten nur für die aktuelle Browser-Session.
-- Wenn die Seite neu geöffnet wird, entsteht eine neue Session mit den standard Einstellungen.
-- Werden Marker stark verdeckt oder falsch erkannt, kann die Perspektive verzerrt werden.
+## Messung und Archiv
 
+Die App kann Livebilder aus der Kamera oder ein hochgeladenes Bild analysieren.
+
+- **Fullframe** zeigt das komplette Eingabebild mit Marker-Erkennung.
+- **Cropped** ist die entzerrte Arbeitsflaeche innerhalb der Marker.
+- **Ergebnis** zeigt Blattkontur, Convex Hull und Schadensflaechen.
+- **Schadensmaske** zeigt die kombinierte Schadensmaske.
+
+Mit **Archivieren** werden Messwerte, Beschreibung, Notizen und Bilder im aktiven Projekt gespeichert. Der Projekt-Download liefert ein ZIP mit CSV und Archivbildern.
+
+## Manuelle Werkzeuge
+
+- **Freeze / Live**: aktuelles Bild einfrieren oder wieder zum Livebild wechseln.
+- **Schaden**: zusaetzliche Schadensbereiche markieren.
+- **Korrekt**: falsch erkannte Schaeden als gesunde Blattflaeche korrigieren.
+- **Aus Flaeche entfernen**: Bereiche komplett aus der Berechnung herausnehmen.
+- **Radierer**: manuelle Markierungen entfernen.
+- **Alles loeschen**: alle manuellen Masken der aktuellen Ansicht entfernen.
+- **Groesse**: Pinsel- und Radierergroesse.
+
+## Einstellungen
+
+### Sprache und Darstellung
+
+- **Sprache**: Deutsch oder Englisch.
+- **Dunkelmodus**: wechselt die Darstellung.
+
+### Eingabe und Messgeometrie
+
+- **Kamera/Bildmodus**: zwischen Live-Kamera und Bilddatei wechseln.
+- **Bild**: Datei von der Festplatte laden.
+- **Physische Breite cm**: reale Breite zwischen den Marker-Mittelpunkten.
+- **Physische Hoehe cm**: reale Hoehe zwischen den Marker-Mittelpunkten.
+- **Digitale Aufloesung px**: Aufloesung der entzerrten Arbeitsflaeche.
+- **Analyse-FPS**: Haeufigkeit der schweren Bildanalyse pro Sekunde.
+
+### HSV Live-Grenzen
+
+- **Hue**: Farbtonbereich.
+- **Saturation**: Saettigungsbereich.
+- **Value**: Helligkeitsbereich.
+- **Kernelgroesse**: Rauschfilterung fuer die Blattmaske.
+
+### Masken
+
+- **Manuelle Masken einrechnen**: manuelle Korrekturen in die Berechnung aufnehmen.
+- **Convex-Randschaeden**: Flaeche zwischen Blattkontur und Convex Hull als Randschaden werten.
+- **Zeichnen auf Blattmaske begrenzen**: manuelle Markierungen auf die erkannte Blattflaeche begrenzen.
+- **Maske schrumpfen px**: erkannte Blattmaske vor der Begrenzung verkleinern.
+- **Auto-Schaeden auf Cropped**: automatisch erkannte Schaeden direkt im Cropped-Bild anzeigen.
+
+### Anzeige
+
+- **Marker anzeigen**: erkannte Marker-Kandidaten anzeigen.
+- **Flaeche markieren**: Messbegrenzung anzeigen.
+- **Umrandung**: Blattkontur anzeigen.
+- **Convex Hull**: konvexe Huelle anzeigen.
+
+## Hinweise zur Genauigkeit
+
+- Die Flaechenberechnung haengt direkt von den eingetragenen physischen Breite-/Hoehe-Werten ab.
+- Die Box-Standardwerte nicht fuer das Tracking Sheet uebernehmen, wenn das Sheet nicht exakt dieselbe Geometrie hat.
+- Druckskalierung, Kamerawinkel, Schatten und Reflexionen koennen Messergebnisse beeinflussen.
+- Die Convex-Hull-Methode ist eine Schaetzung und funktioniert am besten bei einfachen Blattformen.
+- Manuelle Korrekturen gelten fuer die aktuelle Messung und werden beim Archivieren gespeichert.
+
+## Datenschutz und Sicherheit
+
+- Live-Kamerabilder werden im Browser analysiert.
+- Daten werden erst beim Archivieren an den Server gesendet.
+- Sessions laufen ueber `HttpOnly`-Cookies.
+- Passwoerter werden mit Salt und `scrypt` gespeichert.
+- E-Mail-Verifizierungs- und Reset-Tokens werden gehasht gespeichert.
+- Produktive Deployments sollten Backups fuer `data/` und `archive/projects/` einrichten.

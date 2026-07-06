@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Leaf Measurement</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=20260706-help2">
   </head>
   <body>
     <header class="top-nav">
@@ -90,7 +90,12 @@
               </section>
             </div>
 
-            <section id="measurementBrowser" class="measurement-browser">
+            <div class="project-tabs" role="tablist" aria-label="Projektbereiche">
+              <button id="projectMeasurementsTab" class="tab-button active" type="button" role="tab" aria-controls="measurementBrowser" aria-selected="true" data-project-tab="measurements">Messungen</button>
+              <button id="projectHelpTab" class="tab-button" type="button" role="tab" aria-controls="projectHelpPanel" aria-selected="false" data-project-tab="help">Hilfe</button>
+            </div>
+
+            <section id="measurementBrowser" class="measurement-browser" role="tabpanel" aria-labelledby="projectMeasurementsTab" data-project-panel="measurements">
               <div class="panel-head compact">
                 <h3>Messungen browsen</h3>
                 <button id="refreshMeasurements" class="button">Aktualisieren</button>
@@ -100,6 +105,16 @@
                 <article id="measurementDetail" class="measurement-detail">
                   <p class="hint">Wähle eine Messung aus.</p>
                 </article>
+              </div>
+              <div class="measurement-downloads">
+                <a id="trackingSheetDownload" class="button" href="/tracking-sheet.pdf" download>Tracking Sheet herunterladen</a>
+              </div>
+            </section>
+
+            <section id="projectHelpPanel" class="project-help hidden" role="tabpanel" aria-labelledby="projectHelpTab" data-project-panel="help">
+              <div class="help-links">
+                <a id="documentationLink" class="button" href="https://github.com/CasparNiemeyer/Leaf-measurement/blob/main/docs/APP_DOKUMENTATION.md" target="_blank" rel="noopener">Dokumentation öffnen</a>
+                <a id="helpTrackingSheetDownload" class="button" href="/tracking-sheet.pdf" download>Tracking Sheet herunterladen</a>
               </div>
             </section>
           </div>
@@ -208,39 +223,39 @@
 
       <aside id="settingsPanel" class="settings panel measurement-panel">
         <h2 id="settingsTitle">Einstellungen</h2>
-        <label class="field">Sprache
+        <label id="languageField" class="field">Sprache
           <select id="languageSelect"><option value="de">Deutsch</option><option value="en">English</option></select>
         </label>
-        <label class="check"><input id="darkMode" type="checkbox"> Dunkelmodus</label>
-        <label class="check"><input id="cameraMode" type="checkbox" checked> Kamera/Bildmodus</label>
-        <label class="field">Bild
+        <label id="darkModeField" class="check"><input id="darkMode" type="checkbox"> Dunkelmodus</label>
+        <label id="cameraModeField" class="check"><input id="cameraMode" type="checkbox" checked> Kamera/Bildmodus</label>
+        <label id="imageUploadField" class="field">Bild
           <input id="imageUpload" type="file" accept="image/*">
         </label>
-        <label class="field">Physische Breite cm <input id="physWidth" type="number" step="0.1" value="13.4"></label>
-        <label class="field">Physische Höhe cm <input id="physHeight" type="number" step="0.1" value="13.4"></label>
-        <label class="field">Digitale Auflösung px <input id="digWidth" type="number" min="200" max="1400" value="700"></label>
-        <label class="field">Analyse-FPS <input id="analysisFps" type="number" min="1" max="30" value="8"></label>
-        <label class="field">Kernelgröße <input id="kernelSize" type="number" min="1" max="31" value="5"></label>
+        <label id="physWidthField" class="field">Physische Breite cm <input id="physWidth" type="number" step="0.1" value="13.4"></label>
+        <label id="physHeightField" class="field">Physische Höhe cm <input id="physHeight" type="number" step="0.1" value="13.4"></label>
+        <label id="digWidthField" class="field">Digitale Auflösung px <input id="digWidth" type="number" min="200" max="1400" value="700"></label>
+        <label id="analysisFpsField" class="field">Analyse-FPS <input id="analysisFps" type="number" min="1" max="30" value="8"></label>
+        <label id="kernelSizeField" class="field">Kernelgröße <input id="kernelSize" type="number" min="1" max="31" value="5"></label>
 
-        <h3>HSV Live-Grenzen</h3>
-        <label class="range-field">Hue <span id="hueLabel"></span><span class="dual-range" data-min="0" data-max="179"><span class="dual-range-track"></span><input id="hueRange" type="range" min="0" max="179" value="0"><input id="hueRangeMax" type="range" min="0" max="179" value="179"></span></label>
-        <label class="range-field">Saturation <span id="satLabel"></span><span class="dual-range" data-min="0" data-max="255"><span class="dual-range-track"></span><input id="satRange" type="range" min="0" max="255" value="30"><input id="satRangeMax" type="range" min="0" max="255" value="255"></span></label>
-        <label class="range-field">Value <span id="valLabel"></span><span class="dual-range" data-min="0" data-max="255"><span class="dual-range-track"></span><input id="valRange" type="range" min="0" max="255" value="40"><input id="valRangeMax" type="range" min="0" max="255" value="255"></span></label>
+        <h3 id="hsvSettingsTitle">HSV Live-Grenzen</h3>
+        <label id="hueField" class="range-field">Hue <span id="hueLabel"></span><span class="dual-range" data-min="0" data-max="179"><span class="dual-range-track"></span><input id="hueRange" type="range" min="0" max="179" value="0"><input id="hueRangeMax" type="range" min="0" max="179" value="179"></span></label>
+        <label id="satField" class="range-field">Saturation <span id="satLabel"></span><span class="dual-range" data-min="0" data-max="255"><span class="dual-range-track"></span><input id="satRange" type="range" min="0" max="255" value="30"><input id="satRangeMax" type="range" min="0" max="255" value="255"></span></label>
+        <label id="valField" class="range-field">Value <span id="valLabel"></span><span class="dual-range" data-min="0" data-max="255"><span class="dual-range-track"></span><input id="valRange" type="range" min="0" max="255" value="40"><input id="valRangeMax" type="range" min="0" max="255" value="255"></span></label>
 
-        <h3>Masken</h3>
-        <label class="check"><input id="manualEnabled" type="checkbox" checked> Manuelle Masken einrechnen</label>
-        <label class="check"><input id="autoEdgeDamage" type="checkbox" checked> Convex-Randschäden</label>
-        <label class="check"><input id="limitToLeaf" type="checkbox"> Zeichnen auf Blattmaske begrenzen</label>
-        <label class="field">Maske schrumpfen px <input id="shrinkMask" type="number" min="0" max="80" value="0"></label>
-        <label class="check"><input id="showAutoOnCrop" type="checkbox"> Auto-Schäden auf Cropped</label>
+        <h3 id="maskSettingsTitle">Masken</h3>
+        <label id="manualEnabledField" class="check"><input id="manualEnabled" type="checkbox" checked> Manuelle Masken einrechnen</label>
+        <label id="autoEdgeDamageField" class="check"><input id="autoEdgeDamage" type="checkbox" checked> Convex-Randschäden</label>
+        <label id="limitToLeafField" class="check"><input id="limitToLeaf" type="checkbox"> Zeichnen auf Blattmaske begrenzen</label>
+        <label id="shrinkMaskField" class="field">Maske schrumpfen px <input id="shrinkMask" type="number" min="0" max="80" value="0"></label>
+        <label id="showAutoOnCropField" class="check"><input id="showAutoOnCrop" type="checkbox"> Auto-Schäden auf Cropped</label>
 
-        <h3>Anzeige</h3>
-        <label class="check"><input id="drawMarkers" type="checkbox" checked> Marker anzeigen</label>
-        <label class="check"><input id="drawBoundary" type="checkbox" checked> Fläche markieren</label>
-        <label class="check"><input id="drawContours" type="checkbox" checked> Umrandung</label>
-        <label class="check"><input id="drawHull" type="checkbox" checked> Convex Hull</label>
+        <h3 id="displaySettingsTitle">Anzeige</h3>
+        <label id="drawMarkersField" class="check"><input id="drawMarkers" type="checkbox" checked> Marker anzeigen</label>
+        <label id="drawBoundaryField" class="check"><input id="drawBoundary" type="checkbox" checked> Fläche markieren</label>
+        <label id="drawContoursField" class="check"><input id="drawContours" type="checkbox" checked> Umrandung</label>
+        <label id="drawHullField" class="check"><input id="drawHull" type="checkbox" checked> Convex Hull</label>
       </aside>
     </main>
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/app.js?v=20260706-help2"></script>
   </body>
 </html>

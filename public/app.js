@@ -54,6 +54,11 @@ const els = {
   resetPasswordButton: $('resetPasswordButton'),
   platformMessage: $('platformMessage'),
   projectArea: $('projectArea'),
+  projectMeasurementsTab: $('projectMeasurementsTab'),
+  projectHelpTab: $('projectHelpTab'),
+  projectHelpPanel: $('projectHelpPanel'),
+  documentationLink: $('documentationLink'),
+  helpTrackingSheetDownload: $('helpTrackingSheetDownload'),
   profileArea: $('profileArea'),
   profileEmailForm: $('profileEmailForm'),
   profilePasswordForm: $('profilePasswordForm'),
@@ -77,6 +82,7 @@ const els = {
   memberList: $('memberList'),
   measurementBrowser: $('measurementBrowser'),
   refreshMeasurements: $('refreshMeasurements'),
+  trackingSheetDownload: $('trackingSheetDownload'),
   measurementList: $('measurementList'),
   measurementDetail: $('measurementDetail'),
   greenAreaLabel: $('greenAreaLabel'),
@@ -138,6 +144,7 @@ const state = {
   projects: [],
   activeProjectId: localStorage.getItem('leafActiveProjectId') || '',
   measurements: [],
+  projectTab: 'measurements',
   resetToken: new URLSearchParams(location.search).get('reset') || '',
   page: 'measurements',
   resetRequestVisible: false,
@@ -201,6 +208,10 @@ const translations = {
     member: 'Member',
     browseMeasurements: 'Messungen browsen',
     refresh: 'Aktualisieren',
+    projectMeasurementsTab: 'Messungen',
+    projectHelpTab: 'Hilfe',
+    documentationLink: 'Dokumentation öffnen',
+    trackingSheetDownload: 'Tracking Sheet herunterladen',
     chooseMeasurement: 'Wähle eine Messung aus.',
     noProjectMeasurements: 'Noch keine Messungen im Projekt.',
     archiveMeasurementHint: 'Archiviere eine Messung oder wähle einen anderen Projektkontext.',
@@ -379,6 +390,10 @@ const translations = {
     member: 'Member',
     browseMeasurements: 'Browse measurements',
     refresh: 'Refresh',
+    projectMeasurementsTab: 'Measurements',
+    projectHelpTab: 'Help',
+    documentationLink: 'Open documentation',
+    trackingSheetDownload: 'Download tracking sheet',
     chooseMeasurement: 'Select a measurement.',
     noProjectMeasurements: 'No measurements in this project yet.',
     archiveMeasurementHint: 'Archive a measurement or choose another project context.',
@@ -516,8 +531,16 @@ function errorText(error) {
 }
 
 function setLabelText(label, text) {
-  if (!label?.childNodes?.length) return;
-  label.childNodes[0].nodeValue = `${text} `;
+  if (!label) return;
+  const textNode = [...label.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.nodeValue.trim());
+  const value = label.classList.contains('check') ? ` ${text}` : `${text} `;
+  if (textNode) {
+    textNode.nodeValue = value;
+  } else if (label.classList.contains('check')) {
+    label.append(document.createTextNode(value));
+  } else {
+    label.prepend(document.createTextNode(value));
+  }
 }
 
 function setText(selector, text) {
@@ -620,36 +643,39 @@ function applyLanguage() {
   els.projectCsvLink.textContent = tr('projectCsv');
   els.deleteProject.textContent = tr('deleteProject');
   setText('.members-box h3', tr('members'));
+  els.projectMeasurementsTab.textContent = tr('projectMeasurementsTab');
+  els.projectHelpTab.textContent = tr('projectHelpTab');
   setText('#measurementBrowser h3', tr('browseMeasurements'));
   els.refreshMeasurements.textContent = tr('refresh');
+  els.trackingSheetDownload.textContent = tr('trackingSheetDownload');
+  els.documentationLink.textContent = tr('documentationLink');
+  els.helpTrackingSheetDownload.textContent = tr('trackingSheetDownload');
   if (!state.measurements.length) renderMeasurementList();
 
-  const fields = document.querySelectorAll('.settings .field');
-  setLabelText(fields[0], tr('language'));
-  setLabelText(fields[1], tr('image'));
-  setLabelText(fields[2], tr('physWidth'));
-  setLabelText(fields[3], tr('physHeight'));
-  setLabelText(fields[4], tr('digWidth'));
-  setLabelText(fields[5], tr('analysisFps'));
-  setLabelText(fields[6], tr('kernel'));
-  setLabelText(fields[7], tr('shrink'));
-  const checks = document.querySelectorAll('.settings .check');
-  setLabelText(checks[0], tr('darkMode'));
-  setLabelText(checks[1], tr('cameraMode'));
-  setLabelText(checks[2], tr('manual'));
-  setLabelText(checks[3], tr('edge'));
-  setLabelText(checks[4], tr('limit'));
-  setLabelText(checks[5], tr('showAuto'));
-  setLabelText(checks[6], tr('drawMarkers'));
-  setLabelText(checks[7], tr('drawBoundary'));
-  setLabelText(checks[8], tr('drawContours'));
-  setLabelText(checks[9], tr('drawHull'));
-  document.querySelectorAll('.settings h3')[0].textContent = tr('hsv');
-  document.querySelectorAll('.settings h3')[1].textContent = tr('masks');
-  document.querySelectorAll('.settings h3')[2].textContent = tr('display');
-  setLabelText(document.querySelector('#hueRange')?.closest('label'), tr('hue'));
-  setLabelText(document.querySelector('#satRange')?.closest('label'), tr('saturation'));
-  setLabelText(document.querySelector('#valRange')?.closest('label'), tr('value'));
+  setLabelText($('languageField'), tr('language'));
+  setLabelText($('darkModeField'), tr('darkMode'));
+  setLabelText($('cameraModeField'), tr('cameraMode'));
+  setLabelText($('imageUploadField'), tr('image'));
+  setLabelText($('physWidthField'), tr('physWidth'));
+  setLabelText($('physHeightField'), tr('physHeight'));
+  setLabelText($('digWidthField'), tr('digWidth'));
+  setLabelText($('analysisFpsField'), tr('analysisFps'));
+  setLabelText($('kernelSizeField'), tr('kernel'));
+  setText('#hsvSettingsTitle', tr('hsv'));
+  setLabelText($('hueField'), tr('hue'));
+  setLabelText($('satField'), tr('saturation'));
+  setLabelText($('valField'), tr('value'));
+  setText('#maskSettingsTitle', tr('masks'));
+  setLabelText($('manualEnabledField'), tr('manual'));
+  setLabelText($('autoEdgeDamageField'), tr('edge'));
+  setLabelText($('limitToLeafField'), tr('limit'));
+  setLabelText($('shrinkMaskField'), tr('shrink'));
+  setLabelText($('showAutoOnCropField'), tr('showAuto'));
+  setText('#displaySettingsTitle', tr('display'));
+  setLabelText($('drawMarkersField'), tr('drawMarkers'));
+  setLabelText($('drawBoundaryField'), tr('drawBoundary'));
+  setLabelText($('drawContoursField'), tr('drawContours'));
+  setLabelText($('drawHullField'), tr('drawHull'));
   renderAccount();
   renderProfile();
 }
@@ -686,6 +712,27 @@ function showOnly(elements) {
   for (const element of elements) element?.classList.remove('page-hidden');
 }
 
+function setProjectTab(tab = state.projectTab) {
+  state.projectTab = tab === 'help' ? 'help' : 'measurements';
+  const showProjectTab = state.page === 'archive' && Boolean(state.user);
+  const panels = {
+    measurements: els.measurementBrowser,
+    help: els.projectHelpPanel,
+  };
+  const buttons = {
+    measurements: els.projectMeasurementsTab,
+    help: els.projectHelpTab,
+  };
+  for (const [name, panel] of Object.entries(panels)) {
+    panel?.classList.toggle('hidden', !showProjectTab || state.projectTab !== name);
+  }
+  for (const [name, button] of Object.entries(buttons)) {
+    const active = showProjectTab && state.projectTab === name;
+    button?.classList.toggle('active', active);
+    button?.setAttribute('aria-selected', active ? 'true' : 'false');
+  }
+}
+
 function setPage(page = routeFromLocation()) {
   const protectedPage = ['dashboard', 'archive', 'measurements', 'profile'].includes(page);
   if (protectedPage && !state.user) {
@@ -720,7 +767,7 @@ function setPage(page = routeFromLocation()) {
   els.registerForm.classList.toggle('hidden', page !== 'signup');
   els.projectArea.classList.toggle('hidden', page !== 'archive' || !state.user);
   els.profileArea.classList.toggle('hidden', page !== 'profile' || !state.user);
-  els.measurementBrowser.classList.toggle('hidden', page !== 'archive');
+  setProjectTab();
 
   if (page === 'login' || page === 'signup') {
     els.platformTitle.textContent = page === 'login' ? tr('loginTitle') : tr('signupTitle');
@@ -860,8 +907,8 @@ function renderAccount() {
   const loggedIn = Boolean(state.user);
   els.logout.classList.toggle('hidden', !loggedIn);
   els.authStatus.textContent = loggedIn
-    ? `${state.user.email}${state.user.verified ? '' : ' (E-Mail unbestätigt)'}`
-    : 'Nicht angemeldet';
+    ? `${state.user.email}${state.user.verified ? '' : ` (${tr('authUnverified')})`}`
+    : tr('authStatusLoggedOut');
   els.archive.disabled = !loggedIn || !activeProject();
   if (!loggedIn) {
     setPage(routeFromLocation());
@@ -905,7 +952,7 @@ function renderProjectDashboard() {
     name.textContent = member.email;
     const role = document.createElement('span');
     role.className = 'member-role';
-    role.textContent = member.role === 'owner' ? 'Owner' : 'Member';
+    role.textContent = member.role === 'owner' ? tr('owner') : tr('member');
     const meta = document.createElement('span');
     meta.className = 'member-actions';
     meta.append(role);
@@ -939,9 +986,9 @@ function renderMeasurementList() {
   if (!state.measurements.length) {
     const li = document.createElement('li');
     li.className = 'hint';
-    li.textContent = 'Noch keine Messungen im Projekt.';
+    li.textContent = tr('noProjectMeasurements');
     els.measurementList.append(li);
-    els.measurementDetail.innerHTML = '<p class="hint">Archiviere eine Messung oder wähle einen anderen Projektkontext.</p>';
+    els.measurementDetail.innerHTML = `<p class="hint">${escapeHtml(tr('archiveMeasurementHint'))}</p>`;
     return;
   }
   for (const measurement of state.measurements) {
@@ -1123,20 +1170,20 @@ async function refreshCameras() {
   if (!navigator.mediaDevices?.enumerateDevices) return;
   const devices = await navigator.mediaDevices.enumerateDevices();
   const cameras = devices.filter((device) => device.kind === 'videoinput');
-  els.cameraSelect.replaceChildren(new Option('Standardkamera', ''));
+  els.cameraSelect.replaceChildren(new Option(tr('defaultCamera'), ''));
   cameras.forEach((camera, index) => {
-    els.cameraSelect.add(new Option(camera.label || `Kamera ${index + 1}`, camera.deviceId));
+    els.cameraSelect.add(new Option(camera.label || tr('cameraFallback', { number: index + 1 }), camera.deviceId));
   });
 }
 
 async function startCamera() {
   stopCamera(false);
   if (!navigator.mediaDevices?.getUserMedia) {
-    setStatus('nicht verfügbar');
+    setStatus(tr('cameraStateUnavailable'));
     return;
   }
   try {
-    setStatus('startet');
+    setStatus(tr('cameraStateStarting'));
     const deviceId = els.cameraSelect.value;
     const constraints = {
       video: deviceId
@@ -1148,11 +1195,11 @@ async function startCamera() {
     els.video.srcObject = state.stream;
     await els.video.play();
     state.frozen = false;
-    els.freeze.textContent = 'Freeze';
-    setStatus('aktiv');
+    els.freeze.textContent = tr('freeze');
+    setStatus(tr('cameraStateActive'));
     await refreshCameras();
   } catch (error) {
-    setStatus(`Fehler (${error.name || error.message})`);
+    setStatus(tr('cameraError', { detail: error.name || error.message }));
   }
 }
 
@@ -1162,7 +1209,7 @@ function stopCamera(markStopped = true) {
     state.stream = null;
   }
   els.video.srcObject = null;
-  if (markStopped) setStatus('gestoppt');
+  if (markStopped) setStatus(tr('cameraStateStopped'));
 }
 
 function captureSource() {
@@ -1699,8 +1746,8 @@ function processFrame(source) {
   const detection = detectMarkers(source);
   state.lastDetection = detection;
   if (!detection.points?.length) {
-    els.status.textContent = 'Suche Marker';
-    state.lastMeasurement = { status: 'Suche Marker', markers: 0 };
+    els.status.textContent = tr('findingMarkers');
+    state.lastMeasurement = { status: tr('findingMarkers'), markers: 0 };
     return;
   }
 
@@ -1718,7 +1765,7 @@ function processFrame(source) {
       hullMask: new Uint8Array(baseGreen.length),
       damage: new Uint8Array(baseGreen.length),
       autoDamage: new Uint8Array(baseGreen.length),
-    }, s, { status: 'Kein Blatt erkannt', area: null, convexArea: null, damageArea: null, damagePercent: 0, markers: 4 });
+    }, s, { status: tr('noLeafDetected'), area: null, convexArea: null, damageArea: null, damagePercent: 0, markers: 4 });
     return;
   }
 
@@ -1854,17 +1901,17 @@ function toggleFreeze() {
   state.frozen = true;
   els.freeze.textContent = tr('live');
   stopCamera(false);
-  setStatus('eingefroren');
+  setStatus(tr('cameraStateFrozen'));
 }
 
 async function archiveCurrent() {
   if (!state.lastMeasurement || state.lastMeasurement.area == null) {
-    els.archiveStatus.textContent = 'Kein Messbild zum Archivieren vorhanden';
+    els.archiveStatus.textContent = tr('noArchiveImage');
     return;
   }
   const project = activeProject();
   if (!state.user || !project) {
-    els.archiveStatus.textContent = 'Bitte zuerst einloggen und ein Projekt wählen.';
+    els.archiveStatus.textContent = tr('loginProjectRequired');
     return;
   }
   const body = {
@@ -1882,14 +1929,14 @@ async function archiveCurrent() {
   };
   try {
     const result = await api('/api/archive', { method: 'POST', body });
-    els.archiveStatus.textContent = result.ok ? 'Archiviert' : `Fehler: ${result.error || 'unbekannt'}`;
+    els.archiveStatus.textContent = result.ok ? tr('archived') : tr('archiveError', { error: result.error || tr('unknown') });
     if (result.ok) {
       els.archiveDescription.value = '';
       els.archiveNotes.value = '';
     }
     await refreshAccount();
   } catch (error) {
-    els.archiveStatus.textContent = `Fehler: ${error.message}`;
+    els.archiveStatus.textContent = tr('archiveError', { error: error.message });
   }
 }
 
@@ -2050,6 +2097,11 @@ function setupEvents() {
     await navigator.clipboard?.writeText(els.projectInviteLink.value);
     setPlatformMessage(tr('inviteCopied'));
   });
+  els.projectMeasurementsTab.addEventListener('click', () => {
+    setProjectTab('measurements');
+    if (activeProject()) refreshMeasurements().catch((error) => setPlatformMessage(errorText(error)));
+  });
+  els.projectHelpTab.addEventListener('click', () => setProjectTab('help'));
   els.refreshMeasurements.addEventListener('click', refreshMeasurements);
   els.refreshCameras.addEventListener('click', refreshCameras);
   els.startCamera.addEventListener('click', startCamera);
@@ -2083,7 +2135,7 @@ function setupEvents() {
       state.uploadedImage = image;
       inputs.cameraMode.checked = false;
       stopCamera(false);
-      setStatus('Bild geladen');
+      setStatus(tr('imageLoaded'));
     };
     image.src = URL.createObjectURL(file);
   });

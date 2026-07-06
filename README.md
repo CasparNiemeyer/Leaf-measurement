@@ -8,6 +8,14 @@ Die Bildverarbeitung läuft vollständig im Browser. Das Node-Backend stellt nur
 
 ![Leaf Measurement Überblick](docs/assets/readme-overview.png)
 
+Ausführliche Dokumentation: [docs/APP_DOKUMENTATION.md](docs/APP_DOKUMENTATION.md)
+
+Box-Bauanleitung und Druckdateien:
+
+- [Box bauen](docs/APP_DOKUMENTATION.md#box-bauen)
+- [3MF-Datei](docs/assets/box/leaf-measurement-box.3mf)
+- [Fusion-Datei](docs/assets/box/leaf-measurement-box.f3d)
+
 ## Kurzüberblick
 
 - Kamera- oder Bilddatei als Eingabe
@@ -18,7 +26,7 @@ Die Bildverarbeitung läuft vollständig im Browser. Das Node-Backend stellt nur
 - Manuelle Werkzeuge zum Einzeichnen, Korrigieren und Entfernen von Bereichen
 - Benutzeraccounts mit E-Mail-Bestätigung und Passwort-Reset
 - Projekte mit Mitgliedern, Join-Link und geteiltem Archiv
-- CSV-Archiv pro Projekt mit optional gespeicherten Bildansichten
+- ZIP-Archiv pro Projekt mit CSV und optional gespeicherten Bildansichten
 - Clientseitige Analyse ohne kontinuierlichen Upload von Kamerabildern
 
 ## Architektur
@@ -40,7 +48,7 @@ Node Backend
   Benutzer, Sessions und Projektmitgliedschaften verwalten
   E-Mail-Verifizierung und Passwort-Reset-Tokens erzeugen
   Archiv-POST entgegennehmen
-  Projekt-CSV herunterladen
+  Projekt-ZIP herunterladen
   Projekt-Archivbilder geschützt ausliefern
 ```
 
@@ -127,7 +135,8 @@ Das Projekt-Dashboard zeigt:
 - Zeitpunkt der letzten Messung
 - Mitgliederliste mit Rollen
 - Join-Link zum Einladen weiterer Benutzer
-- Link zur Projekt-CSV
+- Link zum Projekt-ZIP
+- Help-Tab mit Dokumentation und Tracking-Sheet-PDF
 - Messungs-Browser mit Detailansicht und Bildern
 
 ## Bedienung
@@ -201,6 +210,8 @@ Werkzeuge:
 
 Aus diesen Werten wird die Fläche pro Pixel berechnet.
 
+Die Standardwerte für physische Breite/Höhe sind für die Messbox gedacht. Beim Tracking Sheet müssen die realen Abstände nach dem Druck separat gemessen und in der App eingetragen werden.
+
 ### Performance
 
 - **Analyse-FPS**: steuert, wie oft pro Sekunde die schwere Bildanalyse läuft.
@@ -247,7 +258,7 @@ Die Convex-Hull-Methode ist eine Schätzung. Sie eignet sich besonders für einf
 
 Mit **Archivieren** wird die aktuelle Messung im aktiven Projekt gespeichert. Dabei werden Messwerte in `archive/projects/<projectId>/measurements.csv` ergänzt und die aktuellen Ansichten in `archive/projects/<projectId>/images/` gespeichert.
 
-Mit **CSV herunterladen** kann das Archiv des aktiven Projekts direkt aus dem Browser geladen werden. Im Projekt-Dashboard gibt es zusätzlich einen Projekt-CSV-Link.
+Mit **ZIP herunterladen** kann das Archiv des aktiven Projekts direkt aus dem Browser geladen werden. Im Projekt-Dashboard gibt es zusätzlich einen Projekt-ZIP-Link.
 
 Das Backend erhält nur Daten beim Archivieren. Während der Live-Analyse werden keine Kameraframes an den Server gesendet.
 

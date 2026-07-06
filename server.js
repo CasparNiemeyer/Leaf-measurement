@@ -51,6 +51,7 @@ const mimeTypes = new Map([
   ['.jpeg', 'image/jpeg'],
   ['.svg', 'image/svg+xml; charset=utf-8'],
   ['.ico', 'image/x-icon'],
+  ['.pdf', 'application/pdf'],
 ]);
 
 const csvFields = [
