@@ -12,6 +12,9 @@ const archiveDir = path.join(__dirname, 'archive');
 const dataDir = path.join(__dirname, 'data');
 const dbPath = path.join(dataDir, 'app-db.json');
 const mailOutboxPath = path.join(dataDir, 'mail-outbox.jsonl');
+const anonymizedDir = path.join(dataDir, 'anonymized-measurements');
+const anonymizedImagesDir = path.join(anonymizedDir, 'images');
+const anonymizedCsvPath = path.join(anonymizedDir, 'measurements.csv');
 loadEnvFile();
 const port = Number(process.env.PORT || 8080);
 const host = process.env.HOST || '0.0.0.0';
@@ -77,7 +80,42 @@ const csvFields = [
   'mask_image',
 ];
 
+const anonymizedCsvFields = [
+  'anonymous_measurement_id',
+  'status',
+  'green_area_cm2',
+  'convex_hull_cm2',
+  'damage_cm2',
+  'damage_percent',
+  'markers',
+  'physical_width_cm',
+  'physical_height_cm',
+  'digital_width_px',
+  'analysis_fps',
+  'kernel_size',
+  'hsv_hue_min',
+  'hsv_hue_max',
+  'hsv_saturation_min',
+  'hsv_saturation_max',
+  'hsv_value_min',
+  'hsv_value_max',
+  'manual_enabled',
+  'auto_edge_damage',
+  'limit_to_leaf',
+  'shrink_mask_px',
+  'show_auto_on_crop',
+  'draw_markers',
+  'draw_boundary',
+  'draw_contours',
+  'draw_hull',
+  'full_image',
+  'cropped_image',
+  'result_image',
+  'mask_image',
+];
+
 let writeQueue = Promise.resolve();
+let anonymizedExportQueue = Promise.resolve();
 
 function loadEnvFile() {
   const envPath = path.join(__dirname, '.env');
@@ -132,6 +170,7 @@ function normalizeDb(db) {
   db.measurements ||= [];
   db.verifyTokens ||= [];
   db.resetTokens ||= [];
+  for (const user of db.users) user.privacyOptOut = Boolean(user.privacyOptOut);
   return db;
 }
 
@@ -214,6 +253,111 @@ function projectCsvContent(db, projectId) {
 async function rewriteProjectCsv(db, projectId) {
   const projectArchive = await ensureProjectArchive(projectId);
   await fs.writeFile(projectArchive.csvPath, projectCsvContent(db, projectId), 'utf8');
+}
+
+function anonymizedMeasurementId(measurement) {
+  return crypto.createHmac('sha256', jwtSecret).update(String(measurement.id || '')).digest('hex').slice(0, 32);
+}
+
+function anonymizedCsvRow(measurement, imageNames) {
+  const settings = measurement.settings || {};
+  const lowerHsv = Array.isArray(settings.lowerHsv) ? settings.lowerHsv : [];
+  const upperHsv = Array.isArray(settings.upperHsv) ? settings.upperHsv : [];
+  return {
+    anonymous_measurement_id: anonymizedMeasurementId(measurement),
+    status: measurement.status || '',
+    green_area_cm2: measurement.greenArea ?? '',
+    convex_hull_cm2: measurement.convexArea ?? '',
+    damage_cm2: measurement.damageArea ?? '',
+    damage_percent: measurement.damagePercent ?? '',
+    markers: measurement.markers ?? '',
+    physical_width_cm: settings.physWidth ?? '',
+    physical_height_cm: settings.physHeight ?? '',
+    digital_width_px: settings.digWidth ?? '',
+    analysis_fps: settings.analysisFps ?? '',
+    kernel_size: settings.kernelSize ?? '',
+    hsv_hue_min: lowerHsv[0] ?? '',
+    hsv_hue_max: upperHsv[0] ?? '',
+    hsv_saturation_min: lowerHsv[1] ?? '',
+    hsv_saturation_max: upperHsv[1] ?? '',
+    hsv_value_min: lowerHsv[2] ?? '',
+    hsv_value_max: upperHsv[2] ?? '',
+    manual_enabled: settings.manualEnabled ?? '',
+    auto_edge_damage: settings.autoEdgeDamage ?? '',
+    limit_to_leaf: settings.limitToLeaf ?? '',
+    shrink_mask_px: settings.shrinkMask ?? '',
+    show_auto_on_crop: settings.showAutoOnCrop ?? '',
+    draw_markers: settings.drawMarkers ?? '',
+    draw_boundary: settings.drawBoundary ?? '',
+    draw_contours: settings.drawContours ?? '',
+    draw_hull: settings.drawHull ?? '',
+    full_image: imageNames.full || '',
+    cropped_image: imageNames.cropped || '',
+    result_image: imageNames.result || '',
+    mask_image: imageNames.mask || '',
+  };
+}
+
+async function copyAnonymizedImage(measurement, imageKey, anonymousId) {
+  const filename = measurement.images?.[imageKey];
+  if (!filename) return '';
+  const sourceRoot = path.normalize(path.join(archiveDir, 'projects', measurement.projectId, 'images'));
+  const sourcePath = path.normalize(path.join(sourceRoot, filename));
+  if (!isPathInside(sourceRoot, sourcePath)) return '';
+  const ext = ['.jpg', '.jpeg', '.png'].includes(path.extname(filename).toLowerCase())
+    ? path.extname(filename).toLowerCase()
+    : '.png';
+  const targetName = `${anonymousId}_${imageKey}${ext === '.jpeg' ? '.jpg' : ext}`;
+  const targetPath = path.normalize(path.join(anonymizedImagesDir, targetName));
+  if (!isPathInside(anonymizedImagesDir, targetPath)) return '';
+  try {
+    await fs.copyFile(sourcePath, targetPath);
+    return `images/${targetName}`;
+  } catch {
+    return '';
+  }
+}
+
+async function rewriteAnonymizedDataset(db) {
+  await ensureDataDir();
+  if (!isPathInside(dataDir, anonymizedDir) || !isPathInside(anonymizedDir, anonymizedImagesDir)) {
+    throw new Error('invalid_anonymized_export_path');
+  }
+  await fs.rm(anonymizedImagesDir, { recursive: true, force: true });
+  await fs.mkdir(anonymizedImagesDir, { recursive: true });
+
+  const users = new Map(db.users.map((user) => [user.id, user]));
+  const rows = [];
+  const measurements = db.measurements
+    .filter((measurement) => {
+      const user = users.get(measurement.userId);
+      return user && !user.privacyOptOut;
+    })
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+
+  for (const measurement of measurements) {
+    const anonymousId = anonymizedMeasurementId(measurement);
+    const imageNames = {
+      full: await copyAnonymizedImage(measurement, 'full', anonymousId),
+      cropped: await copyAnonymizedImage(measurement, 'cropped', anonymousId),
+      result: await copyAnonymizedImage(measurement, 'result', anonymousId),
+      mask: await copyAnonymizedImage(measurement, 'mask', anonymousId),
+    };
+    rows.push(anonymizedCsvRow(measurement, imageNames));
+  }
+
+  const csv = [
+    `${anonymizedCsvFields.map(csvEscape).join(',')}`,
+    ...rows.map((row) => anonymizedCsvFields.map((field) => csvEscape(row[field])).join(',')),
+  ].join('\n') + '\n';
+  await fs.writeFile(anonymizedCsvPath, csv, 'utf8');
+}
+
+function queueAnonymizedDatasetRefresh() {
+  anonymizedExportQueue = anonymizedExportQueue
+    .catch((error) => console.error('Anonymized dataset refresh failed:', error))
+    .then(async () => rewriteAnonymizedDataset(await readDb()));
+  return anonymizedExportQueue;
 }
 
 const crcTable = (() => {
@@ -478,6 +622,7 @@ function publicUser(user) {
     id: user.id,
     email: user.email,
     verified: Boolean(user.verified),
+    privacyOptOut: Boolean(user.privacyOptOut),
     createdAt: user.createdAt,
   };
 }
@@ -893,6 +1038,7 @@ async function handleRegister(request, response) {
       passwordSalt: passwordData.salt,
       passwordHash: passwordData.hash,
       verified: false,
+      privacyOptOut: false,
       createdAt: nowIso(),
     };
     const verifyToken = token();
@@ -1083,6 +1229,25 @@ async function handleAccountUpdate(request, response) {
   });
 }
 
+async function handlePrivacyUpdate(request, response) {
+  const auth = await getAuth(request);
+  const user = requireUser(auth);
+  const body = await readBody(request);
+  const privacyOptOut = Boolean(body.privacyOptOut);
+  const updatedUser = await mutateDb(async (db) => {
+    const storedUser = db.users.find((item) => item.id === user.id);
+    if (!storedUser) {
+      const error = new Error('user_not_found');
+      error.status = 404;
+      throw error;
+    }
+    storedUser.privacyOptOut = privacyOptOut;
+    return storedUser;
+  });
+  await queueAnonymizedDatasetRefresh();
+  sendJson(response, 200, { ok: true, user: publicUser(updatedUser), message: 'privacy_updated' });
+}
+
 async function handleMe(request, response) {
   const auth = await getAuth(request);
   const projects = auth.user
@@ -1160,6 +1325,7 @@ async function handleDeleteProject(request, response, projectId) {
   const base = path.normalize(path.join(archiveDir, 'projects', projectId));
   const allowedRoot = path.normalize(path.join(archiveDir, 'projects'));
   if (base !== allowedRoot && isPathInside(allowedRoot, base)) await fs.rm(base, { recursive: true, force: true });
+  await queueAnonymizedDatasetRefresh();
   sendJson(response, 200, { ok: true });
 }
 
@@ -1237,6 +1403,7 @@ async function handleDeleteMeasurement(request, response, projectId, measurement
     if (isPathInside(imagesRoot, filePath)) await fs.rm(filePath, { force: true });
   }
   await rewriteProjectCsv(await readDb(), projectId);
+  await queueAnonymizedDatasetRefresh();
   sendJson(response, 200, { ok: true });
 }
 
@@ -1380,6 +1547,7 @@ async function handleArchive(request, response) {
   });
   const updatedDb = await readDb();
   await rewriteProjectCsv(updatedDb, project.id);
+  await queueAnonymizedDatasetRefresh();
   sendJson(response, 200, { ok: true, measurement: measurementDetail(savedMeasurement, updatedDb) });
 }
 
@@ -1444,6 +1612,10 @@ async function route(request, response) {
     checkRateLimit(request, 'account', 20, 15 * 60 * 1000);
     return handleAccountUpdate(request, response);
   }
+  if (request.method === 'POST' && pathname === '/api/account/privacy') {
+    checkRateLimit(request, 'account-privacy', 60, 15 * 60 * 1000);
+    return handlePrivacyUpdate(request, response);
+  }
   if (request.method === 'POST' && pathname === '/api/projects') return handleCreateProject(request, response);
   if (request.method === 'POST' && pathname === '/api/projects/join') return handleJoinProject(request, response);
   if (request.method === 'POST' && pathname === '/api/archive') return handleArchive(request, response);
@@ -1488,4 +1660,5 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, host, () => {
   console.log(`Leaf measurement running at http://${host}:${port}/`);
+  queueAnonymizedDatasetRefresh().catch((error) => console.error('Initial anonymized dataset refresh failed:', error));
 });

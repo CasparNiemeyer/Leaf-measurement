@@ -42,7 +42,6 @@ const els = {
   archiveStatus: $('archiveStatus'),
   archiveDescription: $('archiveDescription'),
   archiveNotes: $('archiveNotes'),
-  csv: $('downloadCsv'),
   authStatus: $('authStatus'),
   authForms: $('authForms'),
   logout: $('logoutButton'),
@@ -54,14 +53,16 @@ const els = {
   resetPasswordButton: $('resetPasswordButton'),
   platformMessage: $('platformMessage'),
   projectArea: $('projectArea'),
-  projectMeasurementsTab: $('projectMeasurementsTab'),
-  projectHelpTab: $('projectHelpTab'),
   projectHelpPanel: $('projectHelpPanel'),
+  projectHelpTitle: $('projectHelpTitle'),
   documentationLink: $('documentationLink'),
   helpTrackingSheetDownload: $('helpTrackingSheetDownload'),
   profileArea: $('profileArea'),
   profileEmailForm: $('profileEmailForm'),
   profilePasswordForm: $('profilePasswordForm'),
+  privacyForm: $('privacyForm'),
+  privacyOptOut: $('privacyOptOut'),
+  privacyDisclaimer: $('privacyDisclaimer'),
   profileEmail: $('profileEmail'),
   profileEmailCurrentPassword: $('profileEmailCurrentPassword'),
   profilePasswordCurrentPassword: $('profilePasswordCurrentPassword'),
@@ -82,7 +83,6 @@ const els = {
   memberList: $('memberList'),
   measurementBrowser: $('measurementBrowser'),
   refreshMeasurements: $('refreshMeasurements'),
-  trackingSheetDownload: $('trackingSheetDownload'),
   measurementList: $('measurementList'),
   measurementDetail: $('measurementDetail'),
   greenAreaLabel: $('greenAreaLabel'),
@@ -100,7 +100,6 @@ const routes = new Set(['login', 'signup', 'dashboard', 'archive', 'measurements
 const inputs = {
   language: $('languageSelect'),
   darkMode: $('darkMode'),
-  cameraMode: $('cameraMode'),
   upload: $('imageUpload'),
   physWidth: $('physWidth'),
   physHeight: $('physHeight'),
@@ -133,6 +132,7 @@ const state = {
   frozenCanvas: document.createElement('canvas'),
   uploadedImage: null,
   frozen: false,
+  inputMode: 'camera',
   tool: 'damage',
   drawing: false,
   lastPoint: null,
@@ -144,7 +144,6 @@ const state = {
   projects: [],
   activeProjectId: localStorage.getItem('leafActiveProjectId') || '',
   measurements: [],
-  projectTab: 'measurements',
   resetToken: new URLSearchParams(location.search).get('reset') || '',
   page: 'measurements',
   resetRequestVisible: false,
@@ -184,6 +183,10 @@ const translations = {
     saveEmail: 'E-Mail speichern',
     currentPassword: 'Aktuelles Passwort',
     resendVerification: 'Bestätigungsmail erneut senden',
+    privacyTitle: 'Datenschutz',
+    privacyDisclaimer: 'Wir können anonymisierte Bilder, Messwerte und technische Einstellungen verwenden, um Standardwerte und Messgenauigkeit zu verbessern oder ein Vision-Modell für Blattschäden zu entwickeln. Beschreibung, Notizen, Projektbezug, Benutzerbezug und Kontodaten werden nicht verwendet.',
+    privacyOptOut: 'Opt-out aktivieren',
+    savePrivacy: 'Datenschutz speichern',
     save: 'Speichern',
     logout: 'Logout',
     project: 'Projekt',
@@ -208,8 +211,7 @@ const translations = {
     member: 'Member',
     browseMeasurements: 'Messungen browsen',
     refresh: 'Aktualisieren',
-    projectMeasurementsTab: 'Messungen',
-    projectHelpTab: 'Hilfe',
+    projectHelpTitle: 'Hilfe',
     documentationLink: 'Dokumentation öffnen',
     trackingSheetDownload: 'Tracking Sheet herunterladen',
     chooseMeasurement: 'Wähle eine Messung aus.',
@@ -259,13 +261,11 @@ const translations = {
     archiveDescriptionPlaceholder: 'Name des Eintrags',
     archiveNotesPlaceholder: 'Notizen zur Messung',
     archive: 'Archivieren',
-    downloadCsv: 'ZIP herunterladen',
     archived: 'Archiviert',
     unknown: 'unbekannt',
     settings: 'Einstellungen',
     language: 'Sprache',
     darkMode: 'Dunkelmodus',
-    cameraMode: 'Kamera/Bildmodus',
     image: 'Bild',
     physWidth: 'Physische Breite cm',
     physHeight: 'Physische Höhe cm',
@@ -302,6 +302,8 @@ const translations = {
     resetFailed: 'Reset fehlgeschlagen: {error}',
     profileEmailSaved: 'E-Mail gespeichert. Bei neuer E-Mail wurde ein Bestätigungslink versendet. Prüfe auch den Spam-Ordner.',
     profileEmailSaveFailed: 'E-Mail konnte nicht gespeichert werden: {error}',
+    privacySaved: 'Datenschutzeinstellung gespeichert.',
+    privacySaveFailed: 'Datenschutzeinstellung konnte nicht gespeichert werden: {error}',
     passwordChanged: 'Passwort geändert.',
     passwordChangeFailed: 'Passwort konnte nicht geändert werden: {error}',
     loggedOut: 'Ausgeloggt.',
@@ -366,6 +368,10 @@ const translations = {
     saveEmail: 'Save email',
     currentPassword: 'Current password',
     resendVerification: 'Resend confirmation email',
+    privacyTitle: 'Privacy',
+    privacyDisclaimer: 'We may use anonymized images, measurements, and technical settings to improve defaults and measurement accuracy or to develop a vision model for leaf damage. Description, notes, project references, user references, and account data are not used.',
+    privacyOptOut: 'Enable opt-out',
+    savePrivacy: 'Save privacy setting',
     save: 'Save',
     logout: 'Logout',
     project: 'Project',
@@ -390,8 +396,7 @@ const translations = {
     member: 'Member',
     browseMeasurements: 'Browse measurements',
     refresh: 'Refresh',
-    projectMeasurementsTab: 'Measurements',
-    projectHelpTab: 'Help',
+    projectHelpTitle: 'Help',
     documentationLink: 'Open documentation',
     trackingSheetDownload: 'Download tracking sheet',
     chooseMeasurement: 'Select a measurement.',
@@ -441,13 +446,11 @@ const translations = {
     archiveDescriptionPlaceholder: 'Entry name',
     archiveNotesPlaceholder: 'Measurement notes',
     archive: 'Archive',
-    downloadCsv: 'Download ZIP',
     archived: 'Archived',
     unknown: 'unknown',
     settings: 'Settings',
     language: 'Language',
     darkMode: 'Dark mode',
-    cameraMode: 'Camera/image mode',
     image: 'Image',
     physWidth: 'Physical width cm',
     physHeight: 'Physical height cm',
@@ -484,6 +487,8 @@ const translations = {
     resetFailed: 'Reset failed: {error}',
     profileEmailSaved: 'Email saved. If you changed the address, a confirmation link was sent. Also check your spam folder.',
     profileEmailSaveFailed: 'Email could not be saved: {error}',
+    privacySaved: 'Privacy setting saved.',
+    privacySaveFailed: 'Privacy setting could not be saved: {error}',
     passwordChanged: 'Password changed.',
     passwordChangeFailed: 'Password could not be changed: {error}',
     loggedOut: 'Signed out.',
@@ -599,7 +604,6 @@ function applyLanguage() {
   els.profileVerifiedLabel.textContent = tr('profileVerification');
   if (!state.lastMeasurement) els.status.textContent = tr('noImage');
   els.archive.textContent = tr('archive');
-  els.csv.textContent = tr('downloadCsv');
   els.settingsTitle.textContent = tr('settings');
 
   setText('#loginForm h3', tr('login'));
@@ -629,6 +633,10 @@ function applyLanguage() {
   setLabelText(els.profilePasswordCurrentPassword?.closest('label'), tr('currentPassword'));
   setLabelText(els.profileNewPassword?.closest('label'), tr('newPassword'));
   setText('#profilePasswordForm button[type="submit"]', tr('savePassword'));
+  setText('#privacyTitle', tr('privacyTitle'));
+  els.privacyDisclaimer.textContent = tr('privacyDisclaimer');
+  setLabelText($('privacyOptOutField'), tr('privacyOptOut'));
+  setText('#privacyForm button[type="submit"]', tr('savePrivacy'));
 
   setText('#projectArea .auth-box:nth-child(1) h3', tr('project'));
   setLabelText(els.projectSelect?.closest('label'), tr('activeProject'));
@@ -643,18 +651,15 @@ function applyLanguage() {
   els.projectCsvLink.textContent = tr('projectCsv');
   els.deleteProject.textContent = tr('deleteProject');
   setText('.members-box h3', tr('members'));
-  els.projectMeasurementsTab.textContent = tr('projectMeasurementsTab');
-  els.projectHelpTab.textContent = tr('projectHelpTab');
   setText('#measurementBrowser h3', tr('browseMeasurements'));
   els.refreshMeasurements.textContent = tr('refresh');
-  els.trackingSheetDownload.textContent = tr('trackingSheetDownload');
+  els.projectHelpTitle.textContent = tr('projectHelpTitle');
   els.documentationLink.textContent = tr('documentationLink');
   els.helpTrackingSheetDownload.textContent = tr('trackingSheetDownload');
   if (!state.measurements.length) renderMeasurementList();
 
   setLabelText($('languageField'), tr('language'));
   setLabelText($('darkModeField'), tr('darkMode'));
-  setLabelText($('cameraModeField'), tr('cameraMode'));
   setLabelText($('imageUploadField'), tr('image'));
   setLabelText($('physWidthField'), tr('physWidth'));
   setLabelText($('physHeightField'), tr('physHeight'));
@@ -707,30 +712,10 @@ function showOnly(elements) {
     els.maskPanel,
     els.metricsPanel,
     els.settingsPanel,
+    els.projectHelpPanel,
   ];
   for (const element of all) element?.classList.add('page-hidden');
   for (const element of elements) element?.classList.remove('page-hidden');
-}
-
-function setProjectTab(tab = state.projectTab) {
-  state.projectTab = tab === 'help' ? 'help' : 'measurements';
-  const showProjectTab = state.page === 'archive' && Boolean(state.user);
-  const panels = {
-    measurements: els.measurementBrowser,
-    help: els.projectHelpPanel,
-  };
-  const buttons = {
-    measurements: els.projectMeasurementsTab,
-    help: els.projectHelpTab,
-  };
-  for (const [name, panel] of Object.entries(panels)) {
-    panel?.classList.toggle('hidden', !showProjectTab || state.projectTab !== name);
-  }
-  for (const [name, button] of Object.entries(buttons)) {
-    const active = showProjectTab && state.projectTab === name;
-    button?.classList.toggle('active', active);
-    button?.setAttribute('aria-selected', active ? 'true' : 'false');
-  }
 }
 
 function setPage(page = routeFromLocation()) {
@@ -767,14 +752,13 @@ function setPage(page = routeFromLocation()) {
   els.registerForm.classList.toggle('hidden', page !== 'signup');
   els.projectArea.classList.toggle('hidden', page !== 'archive' || !state.user);
   els.profileArea.classList.toggle('hidden', page !== 'profile' || !state.user);
-  setProjectTab();
 
   if (page === 'login' || page === 'signup') {
     els.platformTitle.textContent = page === 'login' ? tr('loginTitle') : tr('signupTitle');
     showOnly([els.platformPanel]);
   } else if (page === 'archive') {
     els.platformTitle.textContent = tr('archivePage');
-    showOnly([els.platformPanel]);
+    showOnly([els.platformPanel, els.projectHelpPanel]);
     if (state.user && activeProject()) refreshMeasurements().catch((error) => setPlatformMessage(errorText(error)));
   } else if (page === 'profile') {
     els.platformTitle.textContent = tr('profilePage');
@@ -932,7 +916,6 @@ function renderProjectDashboard() {
     els.projectCsvLink.href = '#';
     els.deleteProject.disabled = true;
     els.deleteProject.classList.add('hidden');
-    els.csv.href = '#';
     els.memberList.replaceChildren();
     return;
   }
@@ -941,7 +924,6 @@ function renderProjectDashboard() {
   els.projectLatestMeasurement.textContent = formatDate(project.latestMeasurementAt);
   els.projectInviteLink.value = project.inviteUrl || '';
   els.projectCsvLink.href = `/api/projects/${project.id}/archive.zip`;
-  els.csv.href = `/api/projects/${project.id}/archive.zip`;
   els.deleteProject.disabled = !owner;
   els.deleteProject.classList.toggle('hidden', !owner);
   els.memberList.replaceChildren(...(project.members || []).map((member) => {
@@ -977,6 +959,7 @@ function renderProfile() {
   els.profileNewPassword.value = '';
   els.profileEmailValue.textContent = state.user.email || '-';
   els.profileVerifiedValue.textContent = state.user.verified ? tr('verified') : tr('notVerified');
+  els.privacyOptOut.checked = Boolean(state.user.privacyOptOut);
   els.resendVerification.classList.toggle('hidden', state.user.verified);
 }
 
@@ -1194,6 +1177,7 @@ async function startCamera() {
     state.stream = await navigator.mediaDevices.getUserMedia(constraints);
     els.video.srcObject = state.stream;
     await els.video.play();
+    state.inputMode = 'camera';
     state.frozen = false;
     els.freeze.textContent = tr('freeze');
     setStatus(tr('cameraStateActive'));
@@ -1214,7 +1198,7 @@ function stopCamera(markStopped = true) {
 
 function captureSource() {
   if (state.frozen && state.frozenCanvas.width) return state.frozenCanvas;
-  if (inputs.cameraMode.checked && els.video.videoWidth && els.video.videoHeight && state.stream) {
+  if (state.inputMode === 'camera' && els.video.videoWidth && els.video.videoHeight && state.stream) {
     fitCanvas(state.sourceCanvas, els.video.videoWidth, els.video.videoHeight);
     state.sourceCanvas.getContext('2d').drawImage(els.video, 0, 0);
     return state.sourceCanvas;
@@ -1891,7 +1875,7 @@ function toggleFreeze() {
   if (state.frozen) {
     state.frozen = false;
     els.freeze.textContent = tr('freeze');
-    if (inputs.cameraMode.checked) startCamera();
+    if (state.inputMode === 'camera') startCamera();
     return;
   }
   const source = captureSource();
@@ -2044,6 +2028,20 @@ function setupEvents() {
       setPlatformMessage(tr('passwordChangeFailed', { error: errorText(error) }));
     }
   });
+  els.privacyForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await api('/api/account/privacy', {
+        method: 'POST',
+        body: { privacyOptOut: els.privacyOptOut.checked },
+      });
+      await refreshAccount();
+      setPage('profile');
+      setPlatformMessage(tr('privacySaved'));
+    } catch (error) {
+      setPlatformMessage(tr('privacySaveFailed', { error: errorText(error) }));
+    }
+  });
   els.resetPasswordButton.addEventListener('click', async () => {
     try {
       await api('/api/auth/reset-password', {
@@ -2097,11 +2095,6 @@ function setupEvents() {
     await navigator.clipboard?.writeText(els.projectInviteLink.value);
     setPlatformMessage(tr('inviteCopied'));
   });
-  els.projectMeasurementsTab.addEventListener('click', () => {
-    setProjectTab('measurements');
-    if (activeProject()) refreshMeasurements().catch((error) => setPlatformMessage(errorText(error)));
-  });
-  els.projectHelpTab.addEventListener('click', () => setProjectTab('help'));
   els.refreshMeasurements.addEventListener('click', refreshMeasurements);
   els.refreshCameras.addEventListener('click', refreshCameras);
   els.startCamera.addEventListener('click', startCamera);
@@ -2133,7 +2126,7 @@ function setupEvents() {
     const image = new Image();
     image.onload = () => {
       state.uploadedImage = image;
-      inputs.cameraMode.checked = false;
+      state.inputMode = 'image';
       stopCamera(false);
       setStatus(tr('imageLoaded'));
     };

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Leaf Measurement</title>
-    <link rel="stylesheet" href="/styles.css?v=20260706-help2">
+    <link rel="stylesheet" href="/styles.css?v=20260707-no-measurement-zip">
   </head>
   <body>
     <header class="top-nav">
@@ -90,12 +90,7 @@
               </section>
             </div>
 
-            <div class="project-tabs" role="tablist" aria-label="Projektbereiche">
-              <button id="projectMeasurementsTab" class="tab-button active" type="button" role="tab" aria-controls="measurementBrowser" aria-selected="true" data-project-tab="measurements">Messungen</button>
-              <button id="projectHelpTab" class="tab-button" type="button" role="tab" aria-controls="projectHelpPanel" aria-selected="false" data-project-tab="help">Hilfe</button>
-            </div>
-
-            <section id="measurementBrowser" class="measurement-browser" role="tabpanel" aria-labelledby="projectMeasurementsTab" data-project-panel="measurements">
+            <section id="measurementBrowser" class="measurement-browser">
               <div class="panel-head compact">
                 <h3>Messungen browsen</h3>
                 <button id="refreshMeasurements" class="button">Aktualisieren</button>
@@ -105,16 +100,6 @@
                 <article id="measurementDetail" class="measurement-detail">
                   <p class="hint">Wähle eine Messung aus.</p>
                 </article>
-              </div>
-              <div class="measurement-downloads">
-                <a id="trackingSheetDownload" class="button" href="/tracking-sheet.pdf" download>Tracking Sheet herunterladen</a>
-              </div>
-            </section>
-
-            <section id="projectHelpPanel" class="project-help hidden" role="tabpanel" aria-labelledby="projectHelpTab" data-project-panel="help">
-              <div class="help-links">
-                <a id="documentationLink" class="button" href="https://github.com/CasparNiemeyer/Leaf-measurement/blob/main/docs/APP_DOKUMENTATION.md" target="_blank" rel="noopener">Dokumentation öffnen</a>
-                <a id="helpTrackingSheetDownload" class="button" href="/tracking-sheet.pdf" download>Tracking Sheet herunterladen</a>
               </div>
             </section>
           </div>
@@ -142,9 +127,26 @@
               <label class="field">Neues Passwort <input id="profileNewPassword" type="password" autocomplete="new-password" minlength="8"></label>
               <button class="button primary" type="submit">Passwort speichern</button>
             </form>
+
+            <form id="privacyForm" class="auth-box profile-form privacy-form">
+              <h3 id="privacyTitle">Datenschutz</h3>
+              <p id="privacyDisclaimer" class="hint">Wir können anonymisierte Bilder, Messwerte und technische Einstellungen verwenden, um Standardwerte und Messgenauigkeit zu verbessern oder ein Vision-Modell für Blattschäden zu entwickeln. Beschreibung, Notizen, Projektbezug, Benutzerbezug und Kontodaten werden nicht verwendet.</p>
+              <label id="privacyOptOutField" class="check"><input id="privacyOptOut" type="checkbox"> Opt-out aktivieren</label>
+              <button class="button primary" type="submit">Datenschutz speichern</button>
+            </form>
           </div>
           <p id="platformMessage" class="hint"></p>
         </div>
+
+        <section id="projectHelpPanel" class="panel span-2 project-help-panel page-hidden">
+          <div class="panel-head compact">
+            <h2 id="projectHelpTitle">Hilfe</h2>
+          </div>
+          <div class="help-links">
+            <a id="documentationLink" class="button" href="https://github.com/CasparNiemeyer/Leaf-measurement/blob/main/docs/APP_DOKUMENTATION.md" target="_blank" rel="noopener">Dokumentation öffnen</a>
+            <a id="helpTrackingSheetDownload" class="button" href="/tracking-sheet.pdf" download>Tracking Sheet herunterladen</a>
+          </div>
+        </section>
 
         <div id="fullPanel" class="panel span-2 measurement-panel">
           <div class="panel-head">
@@ -215,7 +217,6 @@
           </div>
           <div class="toolbar left">
             <button id="archiveButton" class="button primary">Archivieren</button>
-            <a id="downloadCsv" class="button" href="#">ZIP herunterladen</a>
           </div>
           <p id="archiveStatus" class="hint"></p>
         </div>
@@ -227,7 +228,6 @@
           <select id="languageSelect"><option value="de">Deutsch</option><option value="en">English</option></select>
         </label>
         <label id="darkModeField" class="check"><input id="darkMode" type="checkbox"> Dunkelmodus</label>
-        <label id="cameraModeField" class="check"><input id="cameraMode" type="checkbox" checked> Kamera/Bildmodus</label>
         <label id="imageUploadField" class="field">Bild
           <input id="imageUpload" type="file" accept="image/*">
         </label>
@@ -256,6 +256,6 @@
         <label id="drawHullField" class="check"><input id="drawHull" type="checkbox" checked> Convex Hull</label>
       </aside>
     </main>
-    <script type="module" src="/app.js?v=20260706-default170"></script>
+    <script type="module" src="/app.js?v=20260707-no-measurement-zip"></script>
   </body>
 </html>

@@ -271,6 +271,15 @@ body[data-page="signup"] #resetPasswordPanel {
   align-self: start;
 }
 
+.privacy-form {
+  grid-column: 1 / -1;
+}
+
+.privacy-form .hint {
+  max-width: 980px;
+  line-height: 1.45;
+}
+
 .auth-box {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -341,37 +350,13 @@ body[data-page="signup"] #resetPasswordPanel {
   font-size: 0.82rem;
 }
 
-.project-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-
-.tab-button {
-  min-height: 36px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  padding: 6px 12px;
-  cursor: pointer;
-}
-
-.tab-button:hover,
-.tab-button.active {
-  border-color: var(--accent);
-  background: rgba(22, 163, 74, 0.12);
-  color: var(--text);
-}
-
 .measurement-browser {
   padding-top: 4px;
 }
 
-.project-help {
-  padding-top: 4px;
+.project-help-panel {
+  display: grid;
+  gap: 10px;
 }
 
 .help-links {
@@ -422,12 +407,6 @@ body[data-page="signup"] #resetPasswordPanel {
   width: auto;
   align-self: stretch;
   text-align: center;
-}
-
-.measurement-downloads {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
 }
 
 .detail-head {
@@ -970,7 +949,6 @@ h3 {
     width: 100%;
   }
 
-  .tab-button,
   .help-links .button {
     flex: 1 1 160px;
     text-align: center;

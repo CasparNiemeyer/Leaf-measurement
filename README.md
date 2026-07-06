@@ -136,7 +136,7 @@ Das Projekt-Dashboard zeigt:
 - Mitgliederliste mit Rollen
 - Join-Link zum Einladen weiterer Benutzer
 - Link zum Projekt-ZIP
-- Help-Tab mit Dokumentation und Tracking-Sheet-PDF
+- Help-Karte mit Dokumentation und Tracking-Sheet-PDF
 - Messungs-Browser mit Detailansicht und Bildern
 
 ## Bedienung
@@ -155,9 +155,8 @@ Kamera:
 
 Bilddatei:
 
-1. In den Einstellungen **Kamera/Bildmodus** deaktivieren.
-2. Unter **Bild** eine Datei auswählen.
-3. Die Analyse startet automatisch.
+1. Unter **Bild** eine Datei auswählen.
+2. Die Analyse startet automatisch und verwendet die geladene Bilddatei.
 
 ### Fullframe
 
@@ -258,7 +257,7 @@ Die Convex-Hull-Methode ist eine Schätzung. Sie eignet sich besonders für einf
 
 Mit **Archivieren** wird die aktuelle Messung im aktiven Projekt gespeichert. Dabei werden Messwerte in `archive/projects/<projectId>/measurements.csv` ergänzt und die aktuellen Ansichten in `archive/projects/<projectId>/images/` gespeichert.
 
-Mit **ZIP herunterladen** kann das Archiv des aktiven Projekts direkt aus dem Browser geladen werden. Im Projekt-Dashboard gibt es zusätzlich einen Projekt-ZIP-Link.
+Das Archiv des aktiven Projekts kann in der Projektübersicht über **Projekt-ZIP** geladen werden.
 
 Das Backend erhält nur Daten beim Archivieren. Während der Live-Analyse werden keine Kameraframes an den Server gesendet.
 
@@ -275,6 +274,9 @@ Die Live-Bildanalyse findet lokal im Browser statt. Das bedeutet:
 - Kamera-Frames werden nicht dauerhaft an den Server gestreamt.
 - Messdaten werden erst übertragen, wenn **Archivieren** gedrückt wird.
 - Archivierte Bilder und CSV-Daten liegen serverseitig unter `archive/projects/`.
+- Wir behalten uns vor, archivierte Messdaten in anonymisierter Form zu verwenden, um bessere Standardwerte zu finden, die Messgenauigkeit zu erhöhen und möglicherweise ein Vision-Modell für Blattschäden zu entwickeln oder zu verbessern. Dafür werden nur Bilder, Messwerte und technische Einstellungen verwendet; Beschreibung, Notizen, Projektbezug, Benutzerbezug und Kontodaten werden nicht einbezogen.
+- Benutzer können dies unter **Profil -> Datenschutz -> Opt-out aktivieren** deaktivieren. Bei aktivem Opt-out werden die eigenen archivierten Messungen nicht in den internen anonymisierten Export übernommen; die interne Sammlung wird beim Speichern der Einstellung neu aufgebaut.
+- Der interne anonymisierte Export liegt ausschließlich serverseitig unter `data/anonymized-measurements/` mit `measurements.csv` und dem Unterordner `images/`. Dieser Ordner wird nicht über UI, Projekt-ZIP oder API ausgeliefert und ist nur über Server-/Dateisystemzugriff erreichbar.
 - Benutzer-, Session- und Projektdaten liegen in `data/app-db.json`.
 - Bestätigungs- und Reset-Mails werden lokal in `data/mail-outbox.jsonl` protokolliert, solange kein echter Mailversand angebunden ist.
 

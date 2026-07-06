@@ -81,8 +81,8 @@ Empfehlung: Die **3MF-Datei** verwenden. Sie wurde in Orca Slicer erstellt und e
 | Komponente | Hinweis |
 | --- | --- |
 | LED-Streifen | Empfehlung: https://amzn.to/4ePdf3e |
-| USB-C-PD-Stecker / Trigger-Modul | Empfehlung: https://amzn.to/3R28YQW |
-| Museumsglas | Wichtig: 20 x 20 cm, Empfehlung: https://amzn.to/4vc2HQz |
+| USB-C-PD-Modul | Empfehlung: https://amzn.to/3R28YQW |
+| Museumsglas | Wichtig: genau 20 x 20 cm; andere Groessen passen nicht. Empfehlung: https://amzn.to/4vc2HQz |
 | M3-Muttern | Werden in die Loecher des Deckels gedrueckt. |
 | M3x20-mm-Schrauben | Deckel von unten verschrauben. |
 | PD-Netzteil oder PD-Powerbank mit 12-V-Ausgang | Muss USB-C Power Delivery und 12 V Ausgangsspannung unterstuetzen. |
@@ -94,7 +94,7 @@ Getestete Stromversorgungen:
 
 ### LED-Streifen einbauen
 
-Nach dem Druck werden die LED-Streifen in die untere Schale geklebt. Die Streifen werden in Reihen verlegt und miteinander verbunden. Danach werden sie an das USB-C-PD-Trigger-Modul angeschlossen.
+Nach dem Druck werden die LED-Streifen in die untere Schale geklebt. Die Streifen werden in Reihen verlegt und miteinander verbunden. Danach werden sie an das USB-C-PD-Modul angeschlossen.
 
 <img src="assets/box/box-led-strip-layout.jpeg" alt="LED-Streifen in der unteren Schale" width="720">
 
@@ -104,13 +104,15 @@ Wichtig:
 - Loetstellen und Draehte mechanisch entlasten.
 - Vor dem Einsetzen des Deckels kurz testen, ob alle LED-Reihen gleichmaessig leuchten.
 
-### PD-Trigger auf 12 V einstellen
+### PD-USB-C-Modul auf 12 V einstellen
 
-Am PD-Trigger-Modul die DIP-Schalter fuer 12 V setzen:
+Am PD-USB-C-Modul das rote Einstellfeld fuer 12 V so setzen:
 
-- Schalter 1: `ON`
-- Schalter 2: `ON`
-- Schalter 3: `OFF`
+- Position 1: `ON`
+- Position 2: `ON`
+- Position 3: `OFF`
+
+<img src="assets/box/pd-usbc-socket-12v-setting.jpeg" alt="Einstellung des PD-USB-C-Moduls auf 12 V" width="720">
 
 Nur eine Powerbank oder ein Netzteil verwenden, das USB-C Power Delivery mit 12 V Ausgang unterstuetzt. Auf dem Netzteil bzw. der Powerbank sollte 12 V als Ausgangsspannung angegeben sein.
 
@@ -126,7 +128,7 @@ In die Loecher des Deckels werden M3-Muttern gedrueckt. Anschliessend wird der D
 
 Auf die fertige Box wird die Tracking Plate gelegt. Das Blatt wird zwischen Tracking Plate und Museumsglas gelegt, sodass es flach und reproduzierbar positioniert ist.
 
-Wichtig: Das Museumsglas muss **20 x 20 cm** gross sein. Andere Glasgroessen koennen die Positionierung und Wiederholbarkeit beeinflussen.
+Wichtig: Das Museumsglas muss **genau 20 x 20 cm** gross sein. Andere Glasgroessen passen in diese Box nicht.
 
 ## Inbetriebnahme mit der Box
 
@@ -191,8 +193,7 @@ Mit **Archivieren** werden Messwerte, Beschreibung, Notizen und Bilder im aktive
 
 ### Eingabe und Messgeometrie
 
-- **Kamera/Bildmodus**: zwischen Live-Kamera und Bilddatei wechseln.
-- **Bild**: Datei von der Festplatte laden.
+- **Bild**: Datei von der Festplatte laden. Sobald ein Bild geladen wird, verwendet die Analyse automatisch diese Bilddatei.
 - **Physische Breite cm**: reale Breite zwischen den Marker-Mittelpunkten.
 - **Physische Hoehe cm**: reale Hoehe zwischen den Marker-Mittelpunkten.
 - **Digitale Aufloesung px**: Aufloesung der entzerrten Arbeitsflaeche.
@@ -232,6 +233,9 @@ Mit **Archivieren** werden Messwerte, Beschreibung, Notizen und Bilder im aktive
 
 - Live-Kamerabilder werden im Browser analysiert.
 - Daten werden erst beim Archivieren an den Server gesendet.
+- Wir behalten uns vor, archivierte Messdaten in anonymisierter Form zu verwenden, um bessere Standardwerte zu finden, die Messgenauigkeit zu erhoehen und moeglicherweise ein Vision-Modell fuer Blattschaeden zu entwickeln oder zu verbessern. Dafuer werden nur Bilder, Messwerte und technische Einstellungen verwendet; Beschreibung, Notizen, Projektbezug, Benutzerbezug und Kontodaten werden nicht einbezogen.
+- Benutzer koennen dies unter **Profil -> Datenschutz -> Opt-out aktivieren** deaktivieren. Bei aktivem Opt-out werden die eigenen archivierten Messungen nicht in den internen anonymisierten Export uebernommen; die interne Sammlung wird beim Speichern der Einstellung neu aufgebaut.
+- Der interne anonymisierte Export liegt ausschliesslich serverseitig unter `data/anonymized-measurements/` mit `measurements.csv` und dem Unterordner `images/`. Dieser Ordner wird nicht ueber UI, Projekt-ZIP oder API ausgeliefert und ist nur ueber Server-/Dateisystemzugriff erreichbar.
 - Sessions laufen ueber `HttpOnly`-Cookies.
 - Passwoerter werden mit Salt und `scrypt` gespeichert.
 - E-Mail-Verifizierungs- und Reset-Tokens werden gehasht gespeichert.
